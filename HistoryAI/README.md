@@ -338,3 +338,12 @@ pending_commentary，系统不自动归属韦昭/高诱）；`#/about` 项目说
 
 细节、以及「为什么不能凭『古籍是公版』就推断整理版也是公版」，见
 [`docs/data_sources.md`](docs/data_sources.md)。
+
+## 许可
+
+本仓库自身的内容（`HistoryAI/` 的代码、前端、测试、文档，以及本 README 与配置文件）
+以 **MIT** 许可发布，全文见仓库根的 [`LICENSE`](../LICENSE)。
+
+**MIT 不覆盖 `HistoryLibrary/kanripo/` 下的原始典籍文本** —— 那部分未随本仓库分发
+（已在 `.gitignore` 中排除），授权状况未能确认，所以不在此处作任何授权声明。
+换句话说：MIT 许可的是这个项目的**代码**，不是它读取的**语料**。
