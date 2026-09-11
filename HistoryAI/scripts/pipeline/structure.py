@@ -1,0 +1,217 @@
+"""集中解析规则：行分类、分层默认、pb 解析、括号注切分、normalized 生成。
+
+设计约束（第一阶段原则）：
+- 能可靠确认的才给确定值；不能确认的一律 unknown / pending_*。
+- 原始文本永远原样保留（text_orig 含 <pb:...>、¶、&KR...;）。
+- 所有“猜测”性质的判定只产生候选（commentary_candidate / pending_section），
+  由人工在前端确认，绝不静默覆盖。
+"""
+from __future__ import annotations
+
+import re
+
+from . import config
+from .records import Record
+
+# ----------------------------------------------------------------- pb
+
+PB_FULL_RE = re.compile(r"<pb:[^>]*>")
+
+
+def parse_pb(marker: str) -> dict | None:
+    """<pb:KR2e0001_SBCK_000-1b> -> {raw, book_id, edition, block, page, side}"""
+    m = config.PB_SPLIT_RE.match(marker)
+    if not m:
+        return {"raw": marker}
+    return {
+        "raw": marker,
+        "book_id": m.group(1),
+        "edition": m.group(2),
+        "block": m.group(3),
+        "page": m.group(4),
+        "side": m.group(5),
+    }
+
+
+def find_pb(text: str) -> list[tuple[str, int]]:
+    """返回 (原始标记串, 起始偏移) 列表。"""
+    return [(m.group(0), m.start()) for m in PB_FULL_RE.finditer(text)]
+
+
+def strip_pb(text: str) -> str:
+    return PB_FULL_RE.sub("", text)
+
+
+# ----------------------------------------------------------------- 头注释/出处
+
+SRC_RE = re.compile(r"^#\s*src:\s*(.*)$")
+COMMENT_KEY_RE = re.compile(r"^#\s*([a-zA-Z_]+):\s*(.*)$")
+
+
+def parse_src_line(line: str) -> dict | None:
+    m = SRC_RE.match(line)
+    if not m:
+        return None
+    rest = m.group(1).strip()
+    prefix = rest.split()[0] if rest.split() else ""
+    return {"raw": line, "src_text": rest, "prefix": prefix, "section_ref": rest[len(prefix):].lstrip(", ").strip() or None}
+
+
+def classify_comment_line(line: str) -> tuple[str, dict | None]:
+    """返回 ('src'|'other', 解析结果)。"""
+    if SRC_RE.match(line):
+        return "src", parse_src_line(line)
+    return "other", None
+
+
+# ------------------------------------------------------------ 文件层默认
+
+def file_layer_defaults(book_dir: str, file_no: int | None, family: str | None,
+                        metadata: dict) -> tuple[str, str, str]:
+    """按文件级证据给出默认 layer/status，返回 (layer, status, note)。
+
+    证据优先级：
+    1. 显式例外表（已人工确认的五书特例，集中在此，不做散落的 if 分支）
+    2. SBCK 族 _000 且 FILE 含“序”→ preface（國語解敘 / 戰國策序 均如此）
+    3. 默认正文 main（tls/sbck 正文文件）；拿不准 → unknown
+    """
+    # (dir_name, file_no) -> (layer, status, note)  人工确认过的特例
+    overrides = {
+        # 尚書 _059 为逸篇附录（Readme 目次 59.x 段，人工复核过）
+        ("shangshu", 59): ("appendix", "ok", "尚書逸篇附集(Readme 目次 59.x)"),
+        # 國語/戰國策 _000 均为序文件（正文首行有书名序题与署名字样）
+        ("guoyu", 0): ("preface", "ok", "《國語解敘》韋昭序"),
+        ("zhanguoce", 0): ("preface", "ok", "劉向《戰國策序》及奏言"),
+    }
+    key = (book_dir, file_no)
+    if key in overrides:
+        return overrides[key]
+
+    if family == "sbck" and file_no == 0:
+        return ("preface", "pending_section", "SBCK 首文件疑为序（未在例外表确认）")
+    if family in ("tls", "sbck"):
+        return ("main", "ok", "正文")
+    return ("unknown", "pending_section", "家族未知")
+
+
+# ------------------------------------------------------------ 行分类
+
+# SBCK 括号注/括注：半角 ( 与全角 （ 都保留（原样不入 normalized），
+# 用 PENDING 拆分标记，见 split_parenthetical()
+PAREN_OPEN_RE = re.compile(r"[(（]")
+PAREN_CLOSE_RE = re.compile(r"[)）]")
+
+
+def _top_level_parens(text: str) -> list[tuple[int, int, str, str]]:
+    """返回行内顶层括号段 [(start, end, open_char, close_char)]；括号不配对/无内容不拆。"""
+    pairs = []
+    stack: list[tuple[int, str]] = []
+    for i, ch in enumerate(text):
+        if ch in "(":
+            stack.append((i, ch))
+        elif ch in ")":
+            if not stack:
+                continue  # 孤立右括号：保留原文不处理
+            s, o = stack.pop()
+            if (o == "(") != (ch == ")"):
+                # 全角半角混配（异常），标记但按半角优先；不深度处理
+                pairs.append((s, i, o, ch))
+            else:
+                pairs.append((s, i, o, ch))
+    return pairs
+
+
+def pending_split_parens(text: str) -> list[tuple[str, int, int, str]]:
+    """将含顶层括号的一行切成 [(片段, start, end, 标记), ...]。
+
+    标记: "main" | "paren"
+    规则：括号内容整体作为 commentary_candidate 片段，绝不猜测注者。
+    不配对括号 → 整行返回 main（宁可 pending_line 也不猜）。
+    """
+    pairs = _top_level_parens(text)
+    if not pairs:
+        return [(text, 0, len(text), "main")]
+    # 简单括号嵌套：用配对算法确保闭合顺序（这里仅需顶层）
+    parts = []
+    cursor = 0
+    for (s, e, _o, _c) in sorted(pairs):
+        # 只接受“外层”段：若前一段未闭合（出现交叠）则保守跳过
+        if s < cursor:
+            return [(text, 0, len(text), "main")]
+        if s > cursor:
+            parts.append((text[cursor:s], cursor, s, "main"))
+        parts.append((text[s:e + 1], s, e + 1, "paren"))
+        cursor = e + 1
+    if cursor < len(text):
+        parts.append((text[cursor:], cursor, len(text), "main"))
+    return parts
+
+
+# ------------------------------------------------------------ 标题/结构判定
+
+# 左传：A=經 B=傳 前缀条目/卷题（编号格式不一：B1、A1.1、A1.1.1 —— 全部容错）
+ZZ_AB_HEAD = re.compile(r"^([AB])[《〈].*$")                                  # B《傳》
+# 卷题正则只吃编号 + 《 头，标题文字留在 m.end() 之后（否则 .*$ 会吞掉全行标题）
+ZZ_AB_CODE_HEAD = re.compile(r"^([AB])(\d+(?:\.\d+)*)(?=[《〈])")            # A1.1《隱公元年經》
+ZZ_AB_ITEM = re.compile(r"^([AB])(\d[\d.]*?)([^0-9.].*)$")                   # A1.1.1元年春王正月。 / B1惠公元妃...
+ZZ_PLAIN_YEAR = re.compile(r"^(\d+)\.(\d+)(.*)$")
+
+
+def zuozhuan_classify(line: str) -> tuple[str, dict]:
+    """(kind, {ab, code, text}) | (None, {}) 表示不属于 A/B 结构。"""
+    m = ZZ_AB_HEAD.match(line)
+    if m:
+        return "heading", {"ab": m.group(1), "code": None}
+    m = ZZ_AB_CODE_HEAD.match(line)
+    if m:
+        return "heading", {"ab": m.group(1), "code": m.group(2), "title": line[m.end():]}
+    m = ZZ_AB_ITEM.match(line)
+    if m:
+        return "passage", {"ab": m.group(1), "code": m.group(2), "text": m.group(3)}
+    return "none", {}
+
+
+def is_org_heading(line: str) -> tuple[str, str | None, str | None]:
+    """org 标题 -> (级别, code, 标题文字)。
+
+    例: '** 1 紀' -> ('h2','1','紀')
+        '** 1 《堯典》' -> ('h2','1','堯典')
+        '*** 2.1　《三代世表》' -> ('h3','2.1','三代世表')
+    """
+    m = config.ORG_H3_RE.match(line)
+    if m:
+        title = clean_title(m.group(2)) if m.group(2) else None
+        return "h3", m.group(1), title
+    m = config.ORG_H2_RE.match(line)
+    if m:
+        title = clean_title(m.group(2)) if m.group(2) else None
+        return "h2", m.group(1), title
+    return "", None, None
+
+
+def clean_title(raw: str) -> str:
+    """《五帝本紀》/ 〈堯典〉 -> 五帝本紀/堯典；正文标题中夹杂空白与序号归并。"""
+    t = raw.strip()
+    t = re.sub(r"[《〈》〉]", "", t)
+    t = re.sub(r"\s+", "", t)
+    return t
+
+
+def title_candidates() -> list[re.Pattern]:
+    """已知明文篇题形态（各书风格不一，全部并列候选，逐条尝试）。"""
+    return [
+        re.compile(r"^(\d+\.\d+)[《〈](.+)$"),      # 史记 1.1《五帝本紀》
+    ]
+
+
+# ------------------------------------------------------------ normalized
+
+def make_normalized(text_orig: str, kind: str, layer: str) -> str | None:
+    """派生检索文本：去除 <pb:...> 与 ¶、行首全角空格，其余原样（绝不复写原字段）。"""
+    if kind not in ("passage", "comment"):
+        return None
+    t = strip_pb(text_orig)
+    t = t.replace(config.PARA_CHAR, "")
+    t = t.strip()
+    t = re.sub(r"^[　 ]+", "", t)
+    return t or None

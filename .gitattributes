@@ -1,0 +1,17 @@
+# 行尾统一：入库一律 LF，检出也一律 LF。
+# 本项目全部是文本（Python / JS / Markdown / SQL / HTML / CSS），无平台相关文件，
+# 因此不需要「Windows 检出 CRLF」那套兼容。定死 eol=lf 可避免 Windows 的
+# core.autocrlf=true 在每次提交时制造全文件 diff 噪音。
+* text=auto eol=lf
+
+# 二进制类型（本项目当前没有，作为防线保留：防止将来误当文本做行尾转换）
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.pdf   binary
+*.zip   binary
+*.db    binary
+*.sqlite binary
+*.sqlite3 binary
+*.xlsx  binary
