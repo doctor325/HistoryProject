@@ -200,3 +200,14 @@ details.card > summary:hover { color: var(--accent); }
   border-radius: 8px; padding: 6px 10px; margin-top: 2px; }
 .dualtag { font-family: var(--sans, inherit); font-size: 11px; color: var(--ink2);
   border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; margin-right: 6px; }
+
+/* ---------- 运行模式横幅（boot.js 填内容；API 模式下不显示） ---------- */
+.modebanner {
+  max-width: 1080px; margin: 14px auto -6px; padding: 9px 16px;
+  border: 1px solid var(--line); border-left: 4px solid var(--ink2);
+  border-radius: 6px; background: var(--paper2); color: var(--ink2);
+  font-size: 13px; line-height: 1.6;
+}
+.modebanner.demo { border-left-color: var(--accent); background: #f5e7dd; color: #6d3a2c; }
+.modebanner.warn { border-left-color: var(--cand); background: #efe6f2; color: #563a6b; }
+.modebanner .mono { font-family: ui-monospace, Consolas, monospace; font-size: 12px; }

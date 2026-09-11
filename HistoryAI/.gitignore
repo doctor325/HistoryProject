@@ -2,3 +2,13 @@
 data/
 __pycache__/
 *.pyc
+
+# 第五阶段：静态站的「本地完整版数据」。含真实语料正文，绝不入库、绝不发布。
+# 上面那条裸 data/ 已经覆盖它，这里再写一遍精确路径是有意的冗余：
+# 两条规则中任意一条被后来的人改掉，另一条仍然拦得住。
+frontend/data/
+
+# 注意：frontend/data-demo/（自制演示数据，MIT）**必须入库**，公开站靠它运行。
+# 它不匹配上面任何一条规则。改动本文件后务必验证：
+#   git check-ignore -v HistoryAI/frontend/data/corpus.json      # 应命中
+#   git check-ignore -v HistoryAI/frontend/data-demo/corpus.json # 应不命中

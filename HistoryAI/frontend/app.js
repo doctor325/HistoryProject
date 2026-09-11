@@ -11,11 +11,22 @@ const num = v => (typeof v === "number" ? v : parseInt(String(v).replace(/,/g, "
 const jp = (s, fb) => { try { return s ? JSON.parse(s) : fb; } catch { return fb; } };
 const fam = f => (f === "sbck" ? "四部丛刊（SBCK）" : (f || "tls"));
 
+/* 唯一的取数接缝。两种模式在这里分流，其余代码一行都不知道自己跑在哪：
+ *   · API 模式 —— 本地 `python -m api.main` 在跑，原样 fetch（第一到第四阶段的行为）；
+ *   · 静态模式 —— 公开站上没有 Python 进程，由 engine/static_api.js 在浏览器里
+ *     重放同一组接口，数据结构、错误消息都与真 API 一致（对拍见
+ *     scripts/site/check_engine.py 的 static-api 检查）。
+ * 模式由 boot.js 探测一次，此后不再逐请求回退 —— 详见 boot.js 的说明。 */
 async function api(path) {
-  const r = await fetch(path);
-  const j = await r.json().catch(() => ({ error: `响应非 JSON（HTTP ${r.status}）` }));
-  if (!r.ok || j.error) throw new Error(j.error || `HTTP ${r.status}`);
-  return j;
+  const boot = window.HistoryAIBoot ? await window.HistoryAIBoot : { mode: "api" };
+  if (boot.mode === "api") {
+    const r = await fetch(path);
+    const j = await r.json().catch(() => ({ error: `响应非 JSON（HTTP ${r.status}）` }));
+    if (!r.ok || j.error) throw new Error(j.error || `HTTP ${r.status}`);
+    return j;
+  }
+  if (!boot.site) throw new Error(boot.error || "静态模式：数据不可用");
+  return boot.site.get(path);   // 出错时抛 Error(消息)，与上面同契约
 }
 const qs = obj => { const u = new URLSearchParams(); for (const k in obj)
   if (obj[k] !== "" && obj[k] != null) u.set(k, obj[k]); return u.toString(); };

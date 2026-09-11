@@ -1,0 +1,100 @@
+name: Deploy site to GitHub Pages
+
+# 公开站：https://doctor325.github.io/HistoryProject/
+#
+# 发布的就是 HistoryAI/frontend/ 这个目录本身 —— 本地 `python -m api.main`
+# 用的 docroot 与线上是同一份文件，没有站点生成器、没有打包器、没有构建产物
+# 需要同步。这样「线上和本地不一样」这类问题在结构上就不存在。
+#
+# 唯一的差别是数据：本地 frontend/ 有 data/（真实语料导出，33.5 MB，被
+# .gitignore 排除，永不发布），线上只有 data-demo/（自撰演示数据，MIT）。
+# 前端靠目录是否存在自动选择，没有开关（见 frontend/boot.js）。
+#
+# 因此这个 workflow 的**主要职责不是部署，是拦截**：在产物上传之前证明它
+# 里面没有真实语料。见下面「装配 + 泄漏闸门」那一步。
+
+on:
+  push:
+    branches: [main]
+    # 只有前端、演示数据、站点脚本变了才值得重新发布。
+    # 改了 search/ 的 Python 也要发 —— JS 移植是它的对照实现，可能跟着改。
+    paths:
+      - "HistoryAI/frontend/**"
+      - "HistoryAI/scripts/site/**"
+      - "HistoryAI/search/**"
+      - ".github/workflows/pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Pages 同时只能有一个部署。排队中的旧任务直接取消，正在跑的不打断
+# （打断会留下半截部署）。§34：不 force push、不删历史，部署也一样不做破坏性操作。
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      # 装配 + 泄漏闸门。build_artifact.py 把 frontend/ 里可公开的部分装进
+      # 一个目录（只排除点名的 data/），然后对它跑 check_publish.py 的三条判据：
+      #   ① 文件白名单  ② 数据里无真实书名  ③ 正文逐字反查自撰演示文本
+      # 任一条不过 → 这一步失败 → 后面的 upload / deploy 全都不执行。
+      # 也就是说：**闸门不过，就发不出去**，而不是「发出去之后再告警」。
+      - name: 装配发布产物并过泄漏闸门
+        working-directory: HistoryAI
+        run: python -m scripts.site.build_artifact "$GITHUB_WORKSPACE/_site"
+
+      # 装完之后再独立核对一遍。上面 build_artifact.py 已经断言过没有 data/，
+      # 这里用**另一段代码**再查一次：两道检查分别写在两个文件里、不共享逻辑，
+      # 免得同一处笔误让两条判据一起失效。
+      #
+      # 注意 shell 的坑：`find … | while read; do exit 1; done` 里那个 exit 只退出
+      # 子 shell，整条管道的状态是 0 —— 写了「失败退出」，实际永远通过。所以这里
+      # 先把结果收进变量再判断。
+      - name: 复查产物（独立于装配脚本）
+        run: |
+          set -eu
+          if [ -e "$GITHUB_WORKSPACE/_site/data" ]; then
+            echo "::error::发布产物里出现了 data/ —— 真实语料导出绝不能公开（§5）"
+            exit 1
+          fi
+          dbs=$(find "$GITHUB_WORKSPACE/_site" \( -name '*.db' -o -name '*.sqlite*' \) -print)
+          if [ -n "$dbs" ]; then
+            echo "::error::发布产物里有数据库文件（§6）："
+            printf '%s\n' "$dbs"
+            exit 1
+          fi
+          echo "产物清单："
+          find "$GITHUB_WORKSPACE/_site" -type f | sed "s|$GITHUB_WORKSPACE/_site/||" | sort
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ${{ github.workspace }}/_site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

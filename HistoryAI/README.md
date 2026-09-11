@@ -2,7 +2,11 @@
 
 第一阶段把 Kanripo 五部先秦典籍的原始 txt 解析为**可人工检查的结构化数据**并提供
 逐条核对前端（原始史料 → Parser → 数据库）；第二阶段在其上加**先秦史料全文检索 +
-中文查询台 + 上下文接口**（检索/上下文均出自数据库真实记录，不接任何 AI/向量模型）。
+中文查询台 + 上下文接口**（检索/上下文均出自数据库真实记录，不接任何 AI/向量模型）；
+第三阶段做检索结果的分块与出处对照，第四阶段加**自然语言提问 + 事件级聚合 +
+繁简双轨**；第五阶段把整套检索**移植到浏览器**，做成零服务器成本的公开静态站。
+
+公开站：**https://doctor325.github.io/HistoryProject/**（演示数据；见下）
 
 原则（贯穿全部代码）：
 
@@ -37,12 +41,19 @@ HistoryProject/
     │   └── zh.py               简体↔繁体（系统 LCMapStringEx，零依赖，失败恒等回退）
     ├── api/                    stdlib http.server 只读 API + 静态前端
     ├── frontend/               先秦史料查询台（纯 vanilla，零依赖，中文界面）
+    │   ├── app.js              界面；**只改过 api() 一处**接缝（第五阶段）
+    │   ├── boot.js             模式判定（API / 静态）+ 数据装载（第五阶段）
+    │   ├── engine/             search/ 的 JS 移植，13 个经典脚本（第五阶段）
+    │   ├── data-demo/          自撰演示数据（MIT，入库）（第五阶段）
+    │   └── data/               （git 忽略）真实语料导出，**永不发布**
+    ├── scripts/site/           静态站工具：字符表 / 导出 / 演示数据 / 闸门 / 一致性
     ├── tests/                  unittest 144 例（一阶段 43 + 二阶段 85 + 四阶段 16）
     ├── database/schema.sql     SQLite 结构（与 sqlite_store.SCHEMA 镜像）
     └── data/                   （git 忽略）全部派生产物：metadata/processed/database/logs
 ```
 
-`prompts/` 为空脚手架。`docs/` 下是三、四阶段报告与数据来源说明。
+`prompts/` 为空脚手架。`docs/` 下是各阶段报告（含第五阶段的
+[一致性验证报告](docs/phase5_consistency.md)）与数据来源说明。
 
 ## 解析模型
 
@@ -344,6 +355,102 @@ pending_commentary，系统不自动归属韦昭/高诱）；`#/about` 项目说
 本仓库自身的内容（`HistoryAI/` 的代码、前端、测试、文档，以及本 README 与配置文件）
 以 **MIT** 许可发布，全文见仓库根的 [`LICENSE`](../LICENSE)。
 
+`HistoryAI/frontend/data-demo/` 下的**演示数据集同样是 MIT** —— 它是本项目自撰的
+（见 `scripts/site/make_demo_data.py`），不含任何第三方语料的文字。
+
 **MIT 不覆盖 `HistoryLibrary/kanripo/` 下的原始典籍文本** —— 那部分未随本仓库分发
 （已在 `.gitignore` 中排除），授权状况未能确认，所以不在此处作任何授权声明。
-换句话说：MIT 许可的是这个项目的**代码**，不是它读取的**语料**。
+换句话说：MIT 许可的是这个项目的**代码与自撰演示数据**，不是它读取的**语料**。
+
+---
+
+# 第五阶段：零成本公开网站化 + GitHub Pages
+
+公开站：**https://doctor325.github.io/HistoryProject/**
+
+交付状态 **PARTIAL**：公开 Demo 前端已经完成，本地完整版搜索保持正常，
+完整在线史料搜索需要未来重新确定可公开的数据来源或部署方案。详见
+[`docs/phase5_report.md`](docs/phase5_report.md)。
+
+## 一个前端，两种模式，零构建
+
+`HistoryAI/frontend/` 既是本地 API 的 docroot，**也是** GitHub Pages 的发布产物 ——
+没有站点生成器、没有打包器、没有需要同步的构建产物。线上和本地是同一份文件。
+
+| 模式 | 何时进入 | 说明 |
+|---|---|---|
+| **API 模式** | 本机 `python -m api.main` 在跑 | 沿用第一到第四阶段的 `/api/*`，一个字节不变 |
+| **静态模式** | `/api/*` 不可用（Pages 上就是 404） | 读导出好的静态 JSON，由 `frontend/engine/static_api.js` 在浏览器里重放同一组接口 |
+
+判定只做一次（探测 `/api/stats`），不做逐请求降级 —— 本地 API 对非法参数返回 400，
+那是真错误，不该降级成静态模式。
+
+静态模式下的数据目录**先 `data/` 后 `data-demo/`**，靠目录是否存在决定，没有开关：
+
+- `frontend/data/` —— 真实语料的导出（**含真实正文，永不入库、永不发布**）
+- `frontend/data-demo/` —— 随仓库发布的**自撰演示数据**（MIT）
+
+公开站上只有后者。将来若确定了一个可公开分发的史料数据源，导出一次放进
+`frontend/data/`，公开版**无需改任何代码**即具备完整检索。
+
+## 在本地跑完整版（三种方式）
+
+```bash
+cd HistoryAI
+
+# ① 动态 API（第一到第四阶段的完整检索，推荐）
+python -m api.main                      # → http://127.0.0.1:8600/
+
+# ② 静态模式 + 真实语料（验证「公开站在有数据时的样子」，不需要 Python 进程）
+PYTHONPATH=. PYTHONIOENCODING=utf-8 python -m scripts.site.export_site frontend/data
+python -m http.server 8800 --directory frontend   # → 127.0.0.1:8800
+
+# ③ 装配公开产物并在本地预览（Pages 上就是这个）
+PYTHONPATH=. PYTHONIOENCODING=utf-8 python -m scripts.site.build_artifact _site
+python -m http.server 8800 --directory _site
+```
+
+方式 ②③ 的数据目录都是本地产物，**不入库**（`.gitignore` 已排除）。
+
+## 发布闸门
+
+公开站发布前必须过闸门，判据都**不需要真实语料在场**（CI 里没有它）：
+
+```bash
+PYTHONPATH=. PYTHONIOENCODING=utf-8 python -m scripts.site.check_publish
+python -m scripts.site.build_artifact _site      # 装配 + 过闸门，一步到位
+```
+
+1. **文件白名单**（26 项，精确到文件名）—— 语料想进来得先变成一个不在名单上的路径
+2. **数据里无真实书名** —— 扫 JSON 字段值找 尚書 / 春秋左傳 / 史記 / 國語 / 戰國策
+3. **正文逐字反查自撰演示文本**（主力）—— 产物里的每一段正文都必须是
+   `make_demo_data.py` 里那 109 行自撰文本的子串
+
+注意：直接在本地对 `frontend/` 跑闸门**会失败**，因为本地存在真实语料导出
+`frontend/data/`。这是闸门**正确工作**，不是误报 —— 那个目录按设计就不能公开。
+要验证「线上那份」是否干净，用 `build_artifact` 装配出产物再查。
+
+## 引擎一致性验证
+
+检索逻辑有两份实现：Python 原版（`search/`，**一行未改**）与浏览器用的 JS 移植
+（`frontend/engine/`）。两者必须给出同一个答案：
+
+```bash
+cd HistoryAI
+PYTHONPATH=. PYTHONIOENCODING=utf-8 python -m scripts.site.check_engine \
+    --report docs/phase5_consistency.md
+```
+
+**13 项检查**，含 72 条 URL 路径的静态分发器对拍（`static_api.js` vs `api/main.py`）
+与演示数据集的可用性检查。报告由 harness 自动生成，重跑即覆盖。详见
+[`docs/phase5_consistency.md`](docs/phase5_consistency.md)。
+
+## 重建演示数据
+
+```bash
+cd HistoryAI
+PYTHONPATH=. PYTHONIOENCODING=utf-8 python -m scripts.site.make_demo_data
+```
+
+走**真管线**（源文本 → `scripts/pipeline` → 独立 DB（临时目录）→ `export_site.py`），
+不手搓 JSON。源文件与中间库用完即删，只有产物 `frontend/data-demo/` 入库。

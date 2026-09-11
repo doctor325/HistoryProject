@@ -19,10 +19,29 @@
   </nav>
   <div id="statsMini" class="mini" title="书 · 文件 · 记录（点数据检查看详情）"></div>
 </header>
+<div id="modeBanner" class="modebanner" hidden></div>
 <main id="view"><div class="load">正在加载…</div></main>
 <footer>
   尚書 · 春秋左傳 · 史記 · 國語 · 戰國策　|　原文以 HistoryLibrary 原始文件为准，本页数据库为派生产物
 </footer>
+<!-- 检索引擎：search/ 的 JS 移植，经典脚本（挂 window.HistoryAIEngine，无打包器）。
+     顺序即依赖序，与 scripts/site/loader.mjs 的 ENGINE_FILES 必须一致 ——
+     一致性自检就是按这个顺序在 Node 里跑同一批文件的。 -->
+<script src="engine/zh_table.js"></script>
+<script src="engine/zh.js"></script>
+<script src="engine/dual_text.js"></script>
+<script src="engine/corpus.js"></script>
+<script src="engine/engine.js"></script>
+<script src="engine/entities.js"></script>
+<script src="engine/question.js"></script>
+<script src="engine/query_expansion.js"></script>
+<script src="engine/ranking.js"></script>
+<script src="engine/result_block.js"></script>
+<script src="engine/aggregate.js"></script>
+<script src="engine/retrieve.js"></script>
+<script src="engine/static_api.js"></script>
+<!-- boot 先跑：探测模式、静态模式下把语料装进内存；app.js 的 api() 等它。 -->
+<script src="boot.js"></script>
 <script src="app.js"></script>
 </body>
 </html>
