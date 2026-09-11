@@ -438,9 +438,9 @@ $ find HistoryLibrary -type f -printf '%T+ %p\n' | sort -r | head -3
 2026-03-12+19:32:42  HistoryLibrary/kanripo/shiji/KR2a0001_400.txt
 ```
 
-全部 118 个文件的 mtime 都停在 **2026-03-12**（语料落盘那天），此后没有任何一次
-写入。代码侧的保证：连接一律 `file:…?mode=ro`（只读 URI），管线里的 library 目录
-只出现在读路径上。
+全部 128 个文件的 mtime 都停在 **2026-03-12**（语料落盘那天），此后没有任何一次
+写入；发布当天（2026-09-11）同样为 0 次写入。代码侧的保证：连接一律
+`file:…?mode=ro`（只读 URI），管线里的 library 目录只出现在读路径上。
 
 **派生数据全部落在别处**：`HistoryAI/data/`（数据库/日志/缓存）与新增的窄表
 `src_paragraphs` 都在 `HistoryAI/` 下，没有一个字节写回 `HistoryLibrary/`。
@@ -449,29 +449,69 @@ $ find HistoryLibrary -type f -printf '%T+ %p\n' | sort -r | head -3
 
 ## 14. GitHub Public 发布结果
 
-**BLOCKED —— 停下来了，没有猜。**
-
-任务书 §21 要求「先检查 `gh auth status`」。检查结果：
+**已发布。**
 
 ```
-$ command -v gh
-（无输出）
-gh 未安装
+repository      doctor325/HistoryProject
+visibility      public
+default branch  main
+license         MIT（GitHub 识别）
+commit          caeb8f0
+git root        D:\MyCode\HistoryProject   （独立仓库，非工作区根）
+文件数          69
 ```
 
-没有 GitHub CLI，就没有 `gh auth status`、没有 `gh repo create`、没有 `gh repo view`。
-按 §21 的明确处置：**停止在需要登录的地方，不索取、不记录、不输出用户的
-GitHub token/password。** 因此**没有执行任何** `git init` / `git add` / `git commit` /
-`git remote add` / `git push`。
+发布过程按 §21 的约束执行：检查 `gh auth status` 时发现未登录，**停止在需要登录的
+地方**，没有索取、记录或输出任何 GitHub token/password —— 登录由用户本人在自己的
+终端完成。全程**没有 force push、没有删除任何分支**。
 
-**第二处阻塞（即使有 gh 也不能直接照做）**：当前 git 仓库根是**工作区根目录**
-（`git rev-parse --show-toplevel` → 工作区根，分支 `master`，**零 commit**），而不是
-`HistoryProject/`。那个根目录里还有大量与本项目无关的个人代码（`C++/`、`C/`、
-`DataStruct/`、`algorithm/`、`python/`、`RoboCup/`、`截图/`、`大一夏令营/`、`.vscode/` …）。
-在根目录 `git add .` 会把它们一并公开 —— 直接违反 §22（个人信息）与 §23（未经确认
-不得公开）。**正确做法是把 `HistoryProject/` 作为独立仓库发布**，但这需要用户确认
-发布目标（账号/仓库名/是否已存在同名仓库），属于「不能猜」的范畴（§27 同样要求
-先确认再创建）。
+**发布过程中实际处理的三件事**
+
+1. **仓库根目录错误**（任务书 §2 的「立即停止」条件）。最初 `git rev-parse
+   --show-toplevel` 返回的是**工作区根目录**而非 `HistoryProject/`，那个根目录里混有
+   大量无关个人代码（`C++/`、`C/`、`DataStruct/`、`algorithm/`、`python/`、
+   `RoboCup/`、`截图/`、`大一夏令营/`、`.vscode/` …）。按 §2 先停下，在
+   `HistoryProject/` 下 `git init` 建立独立仓库，确认 toplevel 变成
+   `D:/MyCode/HistoryProject` 之后才继续。父仓库未被触碰（状态与操作前逐字一致）。
+2. **`HistoryAI/LICENSE` 是 0 字节空文件**。空 LICENSE 比没有 LICENSE 更糟 ——
+   使用者会以为有授权却看不到条款。经与用户确认选用 **MIT**，写在仓库根
+   `LICENSE`（GitHub 只识别根目录的许可文件），空占位文件删除。
+3. **GitHub 一度把许可识别为 `NOASSERTION`**。原因是我在 MIT 正文之后追加了一段
+   中文范围说明，污染了许可条款文本。已修正：`LICENSE` 恢复为标准 MIT 正文，
+   范围说明（「MIT 覆盖代码、不覆盖 `HistoryLibrary/` 语料」）移入 README
+   「许可」一节 —— 它本就是范围声明，不是许可条款。重新推送后 GitHub 正确识别为
+   `MIT`。
+
+**发布前安全审计（§22 / §23）**
+
+- 硬编码本机绝对路径：**0 处**（源码/前端/配置/文档全查）。
+- API key / token / password / cookie / 私密 URL / 个人信息：**0 处**
+  （grep 命中全是 `tokenizer`、`@unittest.skipUnless` 这类误报）。
+- 私密 URL：只有 `http://127.0.0.1:8600`（本机回环，本就是文档要写的）。
+- 原始语料：**未上传**。`HistoryLibrary/` 下无 README/LICENSE/版权声明，无法确认可否
+  再分发 → 按 §23 忽略并在 README 与 `docs/data_sources.md` 说明如何自行获取。
+- 派生产物：`data/`（314MB，含 `history.db`）与 `*.db`/`*.sqlite*`/`logs/`/`cache/`/
+  `__pycache__`/`.env*` 全部忽略。
+- **未误纳入工作区下其他项目**：69 个文件全部在 `HistoryAI/` + `.gitignore` +
+  `.gitattributes` + `LICENSE` 之内。
+
+**发布后验证（对着远程那份查，不是查本地）**
+
+从远程抓回后逐字比对：本地 tree `b20a35f7…` == 远程 tree `b20a35f7…`，
+**GitHub 上的内容与本地被审计的那份完全一致**。远程树中
+`HistoryLibrary/` 0 文件、`*.db`/`*.sqlite` 0 文件、`data/` 0 文件、
+`__pycache__` 0 文件、`.env` 0 文件；关键文件（README / docs / search / tests /
+frontend / schema.sql / .gitignore）逐一在位。
+
+> 远程树里唯一的 `.txt` 是 `HistoryAI/requirements.txt`（空文件，零第三方依赖的
+> 证明），不是语料。
+
+**曾经阻挡发布的两件事，以及最终如何解决**
+
+- `gh` 未安装 → 经用户授权后用 winget 安装 `gh 2.100.0`。
+- gh 的浏览器登录因网络超时失败（`github.com/login/device/code` 无响应）→
+  **没有反复重试或绕过**，改为由用户在自己的终端完成网页登录，凭据存入
+  Git Credential Manager；本地 `git push` 走 HTTPS 正常。
 
 **已经做完、不需要凭据的部分**
 
@@ -493,38 +533,40 @@ GitHub token/password。** 因此**没有执行任何** `git init` / `git add` /
 4. 新增 `docs/data_sources.md`：五部书的 Kanripo ID / 底本 / 文件数 / 体积，
    为什么不能凭「古籍是公版」推断整理版也是公版。
 
-**需要用户决定才能继续的事**
+**用户决定后才继续的事**（现已全部确认并执行）
 
-- 发布目标：哪个账号、仓库名、public 还是 private；
-- 是否已存在同名仓库（§27「不要覆盖已有 GitHub repository」—— 在不知道的情况下
-  我不会去创建或推送）；
-- 是否把仓库根切到 `HistoryProject/`（当前根目录混有无关个人代码）。
+- 发布目标：`doctor325/HistoryProject`、Public；
+- 仓库根切到 `HistoryProject/`（原先混有无关个人代码，按 §2 停下）；
+- 许可条款：由用户在 MIT / Apache-2.0 / 删除 / 暂缓 之间选定 **MIT**。
+
+以上都属于「不能猜」的范畴（§27 要求先确认再创建，§33 要求不确定就停下记录），
+因此当时没有自行决定，而是停下来问清楚。
 
 ---
 
 ## 15. 未解决问题
 
-1. **GitHub 发布被阻塞**（见 §14）。三件事待用户确认：gh 未安装、仓库根不对、
-   发布目标未知。
-2. **§19B SBCK 括注仍未解决**：17,347 条 `pending_commentary` **继续保持 pending**，
+> GitHub 发布一度是本节第 1 条未解决问题，现已解决，见 §14，不再列于此。
+
+1. **§19B SBCK 括注仍未解决**：17,347 条 `pending_commentary` **继续保持 pending**，
    没有自动裁决，没有猜注者。行内括注仍然会出现在片段正文里（因为 `text_orig`
    就是原文，不能删）。
-3. **§19C section_ref 形态统一未开工**：目前 國語/戰國策（SBCK）的
+2. **§19C section_ref 形态统一未开工**：目前 國語/戰國策（SBCK）的
    juan/section/subsection/division **全为 NULL**；尚書只有 section；
    史記有 division(5) + section(10)；左傳有 juan(12)/section(500)/subsection(2065)。
    任务书同时要求「不要为了数据库字段整齐而破坏原始结构」，这件事需要先定语义
    再动手，本阶段没有仓促做。
-4. **提问模式不支持按书/版本过滤**：`level=question` 只接受 `q` 与 `text`，
+3. **提问模式不支持按书/版本过滤**：`level=question` 只接受 `q` 与 `text`，
    没有 `book`/`edition` 参数（第三阶段的检索页有）。需要时应补。
-5. **无实体问句的排序偏弱**：「城濮之战谁赢了」识别不出人物实体，只靠主题词兜底，
+4. **无实体问句的排序偏弱**：「城濮之战谁赢了」识别不出人物实体，只靠主题词兜底，
    相关度一律 5.0，片段之间的次序实际由 book_id/file_id/行号决定，不是真正的相关性
    排序。这类**事件名**问题需要一个事件名词表才能改善。
-6. **同分定序依赖 book_id**：例如「商鞅变法」的两个候选同分时按 book_id 排，
+5. **同分定序依赖 book_id**：例如「商鞅变法」的两个候选同分时按 book_id 排，
    谁在前没有语义依据，只是确定性需要。
-7. **`桓公` 这类光杆短称**：目前如实返回「实体=桓公」并召回全部 15 家的桓公
+6. **`桓公` 这类光杆短称**：目前如实返回「实体=桓公」并召回全部 15 家的桓公
    （33 个事件 / 36 个片段）。这是诚实但不好用的结果 —— 更好的做法是提示用户
    补国名，但那属于交互设计，本阶段没做。
-8. **短称误配的残余风险**：`bare_hit` 只看紧邻前一个字。若正文写「是為桓公」而
+7. **短称误配的残余风险**：`bare_hit` 只看紧邻前一个字。若正文写「是為桓公」而
    前文讲的是别的国家，仍可能误配。当前靠降档（weak，2 分）压低影响，没有消除。
 
 ---
@@ -538,7 +580,7 @@ GitHub token/password。** 因此**没有执行任何** `git init` / `git add` /
 2. **把「不同史书对照」做成显式能力**。现在 `sources` 只是并排列出，第五阶段可以
    做**异文对照**（同一事件在左傳/史記/國語里的记载差异），但差异必须由人裁决，
    系统只呈现并列，不下「谁对」的结论。
-3. **补事件名词表**，解决「城濮之战」这类无人物实体的问句（§15.5）。
+3. **补事件名词表**，解决「城濮之战」这类无人物实体的问句（§15.4）。
 4. **做 §19B / §19C 的收尾**：SBCK 括注需要可靠结构才能裁决，section_ref 需要先
    定统一语义。两件都不能靠猜。
 5. **问答模式加过滤参数**（book/edition），与第三阶段对齐。
@@ -574,4 +616,4 @@ GitHub token/password。** 因此**没有执行任何** `git init` / `git add` /
 | 性能经过 profile | ✅ | §11；`src_paragraphs` 就是先 profile 再决定的 |
 | HistoryLibrary 零写入 | ✅ | §13 |
 | Public 发布前完成安全审计 | ✅ | §14，审计已完成 |
-| GitHub Public repository 成功发布 | ❌ **BLOCKED** | §14，gh 未安装 + 仓库根不对，停下记录不猜 |
+| GitHub Public repository 成功发布 | ✅ | §14，`doctor325/HistoryProject`，public，main，MIT |
