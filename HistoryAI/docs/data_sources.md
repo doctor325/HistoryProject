@@ -5,21 +5,30 @@
 ## 一、原始语料
 
 `HistoryLibrary/kanripo/` 下是 Kanripo（漢籍リポジトリ / Kanseki Repository）项目的
-纯文本，五部先秦典籍，共 118 个 txt：
+纯文本，七部典籍（五部先秦 + 两部秦汉），共 345 个 txt：
 
 | 目录 | 书名 | Kanripo ID | 底本 | 文件数 | 体积 |
 |------|------|-----------|------|-------:|-----:|
-| `guoyu/` | 國語 | KR2e0001 | SBCK（四部叢刊） | 22 | 529K |
-| `shangshu/` | 尚書 | KR1b0001 | tls | 59 | 321K |
-| `shiji/` | 史記 | KR2a0001 | tls | 14 | 3.1M |
-| `zhanguoce/` | 戰國策 | KR2e0003 | SBCK | 11 | 942K |
-| `zuozhuan/` | 春秋左傳 | KR1e0001 | tls | 12 | 1.7M |
+| `guoyu/` | 國語 | KR2e0001 | SBCK（四部叢刊） | 22 | 479K |
+| `shangshu/` | 尚書 | KR1b0001 | tls | 59 | 187K |
+| `shiji/` | 史記 | KR2a0001 | tls | 14 | 3.0M |
+| `zhanguoce/` | 戰國策 | KR2e0003 | SBCK | 11 | 915K |
+| `zuozhuan/` | 春秋左傳 | KR1e0001 | tls | 12 | 1.6M |
+| `qianhanshu/` | 前漢書 | KR2a0007 | WYG（文淵閣四庫全書） | 102 | 4.5M |
+| `houhanshu/` | 後漢書 | KR2a0009 | WYG | 125 | 3.9M |
 
 上表的 ID/底本取自每个文件自己的头部元数据（`#+PROPERTY: ID` / `BASEEDITION` /
 `WITNESS`），不是外部查来的 —— 换句话说，**这些字段是语料自己说的**。
 
 文件形态：`#+` 开头的 org 模式头部 + 正文。正文里 `¶` 是 Kanripo 的句读分隔符，
-`<pb:…>` 是原书页码锚点。tls 家族与 SBCK 家族的差别见 `phase2_report.md`。
+`<pb:…>` 是原书页码锚点。
+
+**三个文本家族**：`tls`（尚書/史記/春秋左傳）、`SBCK` 四部叢刊（國語/戰國策）见
+`phase2_report.md`；第六点二阶段加入的 `WYG` 文淵閣四庫全書（前漢書/後漢書）是第三个
+家族，形态与前两个都不同：卷题/篇题分列、篇题可长达十余字（「地理志第八上」）、
+篇题后紧跟行内注（颜师古/章怀太子，约占 36% 字符）、每卷末另附「考證」块。
+管线不假设「所有书结构一样」，三家族的差别与识别规则集中在
+`scripts/pipeline/structure.py` 与 `segmentation.py`。
 
 ## 二、能不能再分发：**不能确认，所以没有打包**
 
@@ -35,7 +44,7 @@
 所以本仓库采取的做法是：
 
 1. `HistoryProject/.gitignore` 里忽略 `HistoryLibrary/kanripo/`；
-2. 想跑这个项目的读者，**自行**从 Kanripo 获取对应五部书的 txt，放回
+2. 想跑这个项目的读者，**自行**从 Kanripo 获取对应七部书的 txt，放回
    `HistoryLibrary/kanripo/<书>/` 原位置（目录名与上表一致）；
 3. 管线只读这些文件，不做任何写入，路径由 `scripts/pipeline/config.py` 统一解析。
 

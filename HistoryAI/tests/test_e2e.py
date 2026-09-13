@@ -14,7 +14,28 @@ from pathlib import Path
 from scripts.pipeline import config
 from scripts.pipeline.validate import run_validation
 
-HAS_OUTPUTS = config.DB_PATH.is_file() and len(list(config.PROCESSED_DIR.glob("parsed_*.jsonl"))) == 5
+def db_count(sql: str) -> int:
+    """从**正式库**数一个计数，当作基准。
+
+    写死数字在扩容时必然过期：第六点二阶段加了 前漢書/後漢書，原来写死的
+    `== 5`（书数）让整个 test_e2e.py 静默跳过，`== 118`（文件数）则直接判错
+    ——§21 表里登记的正是这两处。书数/文件数由语料决定，让库当基准。
+    """
+    if not config.DB_PATH.is_file():
+        return 0
+    conn = sqlite3.connect(f"file:{config.DB_PATH}?mode=ro", uri=True)
+    try:
+        return conn.execute(sql).fetchone()[0]
+    finally:
+        conn.close()
+
+
+# 判据是「第六点一阶段那 5 部书都还在」，不是「正好几部」——加了书就不跑测试，
+# 等于把验收悄悄关掉。
+HAS_OUTPUTS = (config.DB_PATH.is_file()
+               and len(list(config.PROCESSED_DIR.glob("parsed_*.jsonl"))) >= 5)
+N_BOOKS = db_count("SELECT COUNT(*) FROM books")
+N_FILES = db_count("SELECT COUNT(*) FROM files")
 
 
 @unittest.skipUnless(HAS_OUTPUTS, "先运行 python -m scripts.pipeline.run_all 生成产物")
@@ -23,8 +44,8 @@ class TestDbLoader(unittest.TestCase):
         from scripts.pipeline.sqlite_store import rebuild
         with tempfile.TemporaryDirectory() as td:
             stats = rebuild(Path(td) / "t.db")
-            self.assertEqual(stats["books"], 5)
-            self.assertEqual(stats["files"], 118)
+            self.assertEqual(stats["books"], N_BOOKS)
+            self.assertEqual(stats["files"], N_FILES)
             self.assertGreater(stats["records"], 220_000)
             self.assertGreater(stats["passages"], 200_000)
             conn = sqlite3.connect(Path(td) / "t.db")
@@ -34,10 +55,21 @@ class TestDbLoader(unittest.TestCase):
             conn.close()
 
     def test_db_counts_match_metadata(self):
+        """库内计数与 `data/metadata/*.json` 导出一致。
+
+        两边由不同代码路径写出（库走 sqlite_store，metadata 走 inventory），
+        对不上说明有一边过期了。数字本身不写死（见 db_count 的说明）。
+        """
+        books = json.loads((config.METADATA_DIR / "books.json")
+                           .read_text(encoding="utf-8"))
+        files = json.loads((config.METADATA_DIR / "files.json")
+                           .read_text(encoding="utf-8"))
+        self.assertEqual(N_BOOKS, len(books))
+        self.assertEqual(N_FILES, sum(1 for f in files if f.get("kind") == "txt"),
+                         "metadata 里的 txt 文件数应与库内 files 表一致"
+                         "（readme 是附带文件、不入库）")
         import sqlite3
         conn = sqlite3.connect(str(config.DB_PATH))
-        self.assertEqual(conn.execute("SELECT COUNT(*) FROM books").fetchone()[0], 5)
-        self.assertEqual(conn.execute("SELECT COUNT(*) FROM files").fetchone()[0], 118)
         # 正式库导出的 import_runs 记录应与库内记录数一致
         run = conn.execute("SELECT n_records, status FROM import_runs "
                            "ORDER BY ran_at DESC LIMIT 1").fetchone()
@@ -50,11 +82,11 @@ class TestDbLoader(unittest.TestCase):
 class TestValidate(unittest.TestCase):
     def test_full_validation_passes(self):
         v = run_validation(quiet=True)
-        self.assertEqual(v["files"], 118)
-        self.assertEqual(v["files_ok"], 118, "有文件未通过字符守恒对账")
-        self.assertEqual(v["sha256_ok"], 118)
-        self.assertEqual(v["body_ok"], 118)
-        self.assertEqual(v["meta_ok"], 118)
+        self.assertEqual(v["files"], N_FILES)
+        self.assertEqual(v["files_ok"], N_FILES, "有文件未通过字符守恒对账")
+        self.assertEqual(v["sha256_ok"], N_FILES)
+        self.assertEqual(v["body_ok"], N_FILES)
+        self.assertEqual(v["meta_ok"], N_FILES)
         self.assertEqual(v["pb_bad"], 0)
         self.assertEqual(v["kr_bad"], 0)
 
@@ -82,7 +114,9 @@ class TestApi(unittest.TestCase):
 
     def test_books(self):
         books = self.get("/api/books")
-        self.assertEqual(len(books), 5)
+        # /api/books 的口径必须与库一致（不写死 5：第六点二阶段加了
+        # 前漢書/後漢書，这个数字就成了 7）
+        self.assertEqual(len(books), N_BOOKS)
         self.assertIn("KR2a0001", {b["book_id"] for b in books})
 
     def test_files_and_passages(self):

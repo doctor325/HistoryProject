@@ -120,9 +120,12 @@ def aggregate(cur, ranked: list, mode: str = RB.DEFAULT_MODE,
         return out
 
     hits = [(c.passage_id, c.file_id, c.row_no, c.seq, c.score) for c in picked]
+    # 篇名区间表要走同一条路：问答路径不传的话，同一个查询在搜索页与问答页会
+    # 得到**不同的块边界**（史記/國語的正文行没有行级 section，只有区间表能判篇界）。
+    sec_idx = RB._section_index(cur)
     blocks_raw: list[dict] = []
     for batch in _cluster(hits):
-        blocks_raw.extend(RB.build_result_blocks(cur, batch, mode)["blocks"])
+        blocks_raw.extend(RB.build_result_blocks(cur, batch, mode, sec_idx)["blocks"])
 
     # 命中 → 打分结果。一个 block 里可能有多个命中（Phase 3 已把区间合并），
     # 取其中**相关度最高**的那条作为这个 block 的「为什么相关」，其余记进

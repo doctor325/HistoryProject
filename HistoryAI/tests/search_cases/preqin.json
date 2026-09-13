@@ -1,0 +1,780 @@
+{
+ "version": 2,
+ "corpus": "5 部先秦书（尚書/春秋左傳/史記/國語/戰國策）+ 2 部秦汉书（前漢書/後漢書），421178 条记录",
+ "era": "preqin",
+ "note": [
+  "召回测试集，按时代分文件（第六点二阶段 §21）。preqin.json = 先秦，qin_han.json = 秦汉。",
+  "baseline_hits / baseline_blocks 是 2026-09-12 在 7 部语料（扩容后）上实测的 hit_total / total，只用于报告漂移，不作为失败判据（语料扩充后必然变化）。",
+  "recall: \"section\" 的条目判的是**篇名命中**（match_type 为 section 或 both），不看 hit_total——篇名命中的 hit_total 本来就是 0。",
+  "可选字段：page / page_size / mode / book / edition / text_mode 覆盖默认检索参数；check_pagination 跑末页可达性。",
+  "Passage（逐字对拍）与 Provenance（出处字段齐全）两条审计对**每一条**命中的 case 都跑，没有开关——「返回完整 Passage」是要在每条查询上都成立的保证，抽查两条证明不了什么。",
+  "must_hit=false 的条目是负例对照，expect_class 写明它应该被归到哪一类。",
+  "分类器必须能把负例分对，否则它只是在输出噪音。",
+  "id 必须全局唯一（tests/recall.py 的 load_cases 会断言）——id 是 expect_same_as 的跨文件引用键。",
+  "id 沿用第六点一阶段的历史 id（不改名，以免历史报告里的 id 对不上）：neg-01（董卓）在第六点二阶段加入 後漢書 之后不再是负例，已迁到 qin_han.json 的 qh-person-16。id 留空洞不重编号——neg-* 是历史报告里引用过的名字。第六点二阶段起新增的时代文件一律带时代前缀（qh-…）。"
+ ],
+ "cases": [
+  {
+   "id": "person-01",
+   "group": "person",
+   "query": "齐桓公",
+   "must_hit": true,
+   "baseline_hits": 151,
+   "top_needle": "齊桓公",
+   "note": "史記76/左傳9/戰國策9/國語2",
+   "baseline_blocks": 126
+  },
+  {
+   "id": "person-02",
+   "group": "person",
+   "query": "管仲",
+   "must_hit": true,
+   "baseline_hits": 189,
+   "top_needle": "管仲",
+   "note": "史記68/戰國策13/左傳12/國語9；简繁同形",
+   "baseline_blocks": 141
+  },
+  {
+   "id": "person-03",
+   "group": "person",
+   "query": "楚庄王",
+   "must_hit": true,
+   "baseline_hits": 55,
+   "top_needle": "楚莊王",
+   "note": "史記35/戰國策3/左傳2/國語1；简体输入必须转成楚莊王",
+   "baseline_blocks": 45
+  },
+  {
+   "id": "person-04",
+   "group": "person",
+   "query": "郑庄公",
+   "must_hit": true,
+   "baseline_hits": 19,
+   "top_needle": "鄭莊公",
+   "note": "左傳7/國語3/史記3",
+   "baseline_blocks": 17
+  },
+  {
+   "id": "person-05",
+   "group": "person",
+   "query": "秦始皇",
+   "must_hit": true,
+   "baseline_hits": 103,
+   "top_needle": "秦始皇",
+   "note": "史記19/戰國策3；简繁同形",
+   "baseline_blocks": 101
+  },
+  {
+   "id": "person-06",
+   "group": "person",
+   "query": "晋文公",
+   "must_hit": true,
+   "baseline_hits": 110,
+   "top_needle": "晉文公",
+   "note": "史記48/國語15/左傳6/戰國策2",
+   "baseline_blocks": 88
+  },
+  {
+   "id": "person-07",
+   "group": "person",
+   "query": "重耳",
+   "must_hit": true,
+   "baseline_hits": 223,
+   "top_needle": "重耳",
+   "note": "史記125/國語58/左傳15；晋文公的别名，与 person-06 应指向同一人",
+   "baseline_blocks": 127
+  },
+  {
+   "id": "person-08",
+   "group": "person",
+   "query": "秦穆公",
+   "must_hit": true,
+   "baseline_hits": 45,
+   "top_needle": "秦穆公",
+   "note": "史記19/國語4/戰國策1/尚書1",
+   "baseline_blocks": 43
+  },
+  {
+   "id": "person-09",
+   "group": "person",
+   "query": "百里奚",
+   "must_hit": true,
+   "baseline_hits": 26,
+   "note": "史記；秦穆公贤臣",
+   "baseline_blocks": 23
+  },
+  {
+   "id": "person-10",
+   "group": "person",
+   "query": "伍子胥",
+   "must_hit": true,
+   "baseline_hits": 59,
+   "note": "史記35/戰國策5",
+   "baseline_blocks": 49
+  },
+  {
+   "id": "person-11",
+   "group": "person",
+   "query": "孙武",
+   "must_hit": true,
+   "baseline_hits": 22,
+   "note": "史記；简繁同形",
+   "baseline_blocks": 19
+  },
+  {
+   "id": "person-12",
+   "group": "person",
+   "query": "孔子",
+   "must_hit": true,
+   "baseline_hits": 1301,
+   "note": "史記；简繁同形",
+   "baseline_blocks": 1001
+  },
+  {
+   "id": "person-13",
+   "group": "person",
+   "query": "墨子",
+   "must_hit": true,
+   "baseline_hits": 50,
+   "note": "戰國策",
+   "baseline_blocks": 43
+  },
+  {
+   "id": "person-14",
+   "group": "person",
+   "query": "孟子",
+   "must_hit": true,
+   "baseline_hits": 202,
+   "note": "史記；简繁同形",
+   "baseline_blocks": 165
+  },
+  {
+   "id": "person-15",
+   "group": "person",
+   "query": "荀子",
+   "must_hit": true,
+   "baseline_hits": 16,
+   "note": "戰國策；简繁同形",
+   "baseline_blocks": 15
+  },
+  {
+   "id": "person-16",
+   "group": "person",
+   "query": "商鞅",
+   "must_hit": true,
+   "baseline_hits": 30,
+   "note": "史記7/戰國策2；简繁同形",
+   "baseline_blocks": 29
+  },
+  {
+   "id": "person-17",
+   "group": "person",
+   "query": "苏秦",
+   "must_hit": true,
+   "baseline_hits": 231,
+   "note": "戰國策118/史記77",
+   "baseline_blocks": 164
+  },
+  {
+   "id": "person-18",
+   "group": "person",
+   "query": "张仪",
+   "must_hit": true,
+   "baseline_hits": 355,
+   "note": "戰國策178/史記154",
+   "baseline_blocks": 228
+  },
+  {
+   "id": "place-01",
+   "group": "place",
+   "query": "城濮",
+   "must_hit": true,
+   "baseline_hits": 35,
+   "note": "晋楚城濮之战发生地",
+   "baseline_blocks": 34
+  },
+  {
+   "id": "place-02",
+   "group": "place",
+   "query": "長勺",
+   "must_hit": true,
+   "baseline_hits": 7,
+   "note": "齐鲁长勺之战",
+   "baseline_blocks": 6
+  },
+  {
+   "id": "place-03",
+   "group": "place",
+   "query": "邯鄲",
+   "must_hit": true,
+   "baseline_hits": 385,
+   "note": "赵国都城",
+   "baseline_blocks": 297
+  },
+  {
+   "id": "place-04",
+   "group": "place",
+   "query": "曲沃",
+   "must_hit": true,
+   "baseline_hits": 146,
+   "note": "晋国旧都",
+   "baseline_blocks": 96
+  },
+  {
+   "id": "place-05",
+   "group": "place",
+   "query": "葵丘",
+   "must_hit": true,
+   "baseline_hits": 28,
+   "note": "齐桓公会盟地",
+   "baseline_blocks": 25
+  },
+  {
+   "id": "place-06",
+   "group": "place",
+   "query": "滎陽",
+   "must_hit": true,
+   "baseline_hits": 297,
+   "note": "楚汉相争要地",
+   "baseline_blocks": 238
+  },
+  {
+   "id": "place-07",
+   "group": "place",
+   "query": "垓下",
+   "must_hit": true,
+   "baseline_hits": 26,
+   "note": "项羽败亡处",
+   "baseline_blocks": 22
+  },
+  {
+   "id": "state-01",
+   "group": "state",
+   "query": "齊國",
+   "must_hit": true,
+   "baseline_hits": 131,
+   "note": "左傳",
+   "baseline_blocks": 123
+  },
+  {
+   "id": "state-02",
+   "group": "state",
+   "query": "晉國",
+   "must_hit": true,
+   "baseline_hits": 160,
+   "note": "左傳",
+   "baseline_blocks": 145
+  },
+  {
+   "id": "state-03",
+   "group": "state",
+   "query": "楚國",
+   "must_hit": true,
+   "baseline_hits": 134,
+   "note": "左傳",
+   "baseline_blocks": 125
+  },
+  {
+   "id": "state-04",
+   "group": "state",
+   "query": "秦國",
+   "must_hit": true,
+   "baseline_hits": 38,
+   "note": "史記",
+   "baseline_blocks": 35
+  },
+  {
+   "id": "state-05",
+   "group": "state",
+   "query": "宋國",
+   "must_hit": true,
+   "baseline_hits": 13,
+   "note": "史記；命中量小，边界值",
+   "baseline_blocks": 13
+  },
+  {
+   "id": "state-06",
+   "group": "state",
+   "query": "越國",
+   "must_hit": true,
+   "baseline_hits": 29,
+   "note": "史記",
+   "baseline_blocks": 27
+  },
+  {
+   "id": "war-01",
+   "group": "war",
+   "query": "城濮之戰",
+   "must_hit": true,
+   "baseline_hits": 1,
+   "note": "左傳；四字完整短语，走 fts",
+   "baseline_blocks": 1
+  },
+  {
+   "id": "war-02",
+   "group": "war",
+   "query": "鄢陵",
+   "must_hit": true,
+   "baseline_hits": 69,
+   "note": "晋楚鄢陵之战",
+   "baseline_blocks": 67
+  },
+  {
+   "id": "war-03",
+   "group": "war",
+   "query": "長平",
+   "must_hit": true,
+   "baseline_hits": 137,
+   "note": "秦赵长平之战",
+   "baseline_blocks": 127
+  },
+  {
+   "id": "war-04",
+   "group": "war",
+   "query": "鉅鹿",
+   "must_hit": true,
+   "baseline_hits": 147,
+   "note": "项羽破秦于巨鹿",
+   "baseline_blocks": 129
+  },
+  {
+   "id": "war-05",
+   "group": "war",
+   "query": "韓原",
+   "must_hit": true,
+   "baseline_hits": 9,
+   "note": "秦晋韩原之战",
+   "baseline_blocks": 9
+  },
+  {
+   "id": "office-01",
+   "group": "office",
+   "query": "丞相",
+   "must_hit": true,
+   "baseline_hits": 1534,
+   "note": "史記",
+   "baseline_blocks": 1125
+  },
+  {
+   "id": "office-02",
+   "group": "office",
+   "query": "令尹",
+   "must_hit": true,
+   "baseline_hits": 216,
+   "note": "左傳；楚国最高官职",
+   "baseline_blocks": 170
+  },
+  {
+   "id": "office-03",
+   "group": "office",
+   "query": "太尉",
+   "must_hit": true,
+   "baseline_hits": 640,
+   "note": "史記",
+   "baseline_blocks": 510
+  },
+  {
+   "id": "office-04",
+   "group": "office",
+   "query": "大夫",
+   "must_hit": true,
+   "baseline_hits": 3531,
+   "baseline_blocks": 2994,
+   "note": "史記；命中量最大。第六点一阶段前 truncated=True（组装上限 600 段 → 329 块），解除后 1080 块，见 pagination-02"
+  },
+  {
+   "id": "office-05",
+   "group": "office",
+   "query": "將軍",
+   "must_hit": true,
+   "baseline_hits": 3975,
+   "baseline_blocks": 2698,
+   "note": "史記；高命中量，但命中密集在少数段落，块数远小于命中数"
+  },
+  {
+   "id": "chapter-01",
+   "group": "chapter",
+   "query": "秦本紀",
+   "must_hit": true,
+   "baseline_hits": 8,
+   "note": "史記篇名，正文中确有出现",
+   "baseline_blocks": 9
+  },
+  {
+   "id": "chapter-02",
+   "group": "chapter",
+   "query": "周本紀",
+   "must_hit": true,
+   "baseline_hits": 5,
+   "note": "史記篇名",
+   "baseline_blocks": 6
+  },
+  {
+   "id": "chapter-03",
+   "group": "chapter",
+   "query": "晉世家",
+   "must_hit": true,
+   "baseline_hits": 3,
+   "note": "史記篇名",
+   "baseline_blocks": 4
+  },
+  {
+   "id": "chapter-04",
+   "group": "chapter",
+   "query": "十二諸侯年表",
+   "must_hit": true,
+   "baseline_hits": 2,
+   "note": "史記篇名",
+   "baseline_blocks": 3
+  },
+  {
+   "id": "event-01",
+   "group": "event",
+   "query": "焚書",
+   "must_hit": true,
+   "baseline_hits": 11,
+   "note": "史記；繁体写法",
+   "baseline_blocks": 9
+  },
+  {
+   "id": "event-02",
+   "group": "event",
+   "query": "三家分晉",
+   "must_hit": true,
+   "baseline_hits": 2,
+   "note": "史記",
+   "baseline_blocks": 2
+  },
+  {
+   "id": "single-01",
+   "group": "single",
+   "query": "尧",
+   "must_hit": true,
+   "baseline_hits": 712,
+   "note": "单字走 like；上位神王",
+   "baseline_blocks": 573
+  },
+  {
+   "id": "single-02",
+   "group": "single",
+   "query": "舜",
+   "must_hit": true,
+   "baseline_hits": 780,
+   "note": "单字；简繁同形",
+   "baseline_blocks": 610
+  },
+  {
+   "id": "single-03",
+   "group": "single",
+   "query": "禹",
+   "must_hit": true,
+   "baseline_hits": 1105,
+   "note": "单字；简繁同形，最高出处尚書大禹謨",
+   "baseline_blocks": 862
+  },
+  {
+   "id": "single-04",
+   "group": "single",
+   "query": "郢",
+   "must_hit": true,
+   "baseline_hits": 278,
+   "note": "单字地名，楚都",
+   "baseline_blocks": 213
+  },
+  {
+   "id": "single-05",
+   "group": "single",
+   "query": "絳",
+   "must_hit": true,
+   "baseline_hits": 377,
+   "note": "单字地名，晋都",
+   "baseline_blocks": 311
+  },
+  {
+   "id": "multi-01",
+   "group": "multi",
+   "query": "齊桓公 管仲",
+   "must_hit": true,
+   "baseline_hits": 10,
+   "note": "两词 AND，共段才命中；三字走 fts 加短词 LIKE",
+   "baseline_blocks": 10
+  },
+  {
+   "id": "multi-02",
+   "group": "multi",
+   "query": "蘇秦 張儀",
+   "must_hit": true,
+   "baseline_hits": 21,
+   "note": "两词 AND；纯二字走 bigram",
+   "baseline_blocks": 19
+  },
+  {
+   "id": "multi-03",
+   "group": "multi",
+   "query": "秦穆公 百里奚",
+   "must_hit": false,
+   "baseline_hits": 0,
+   "expect_class": "Coverage",
+   "note": "实测共段 = 0（单独各 25 / 11）。两词分处不同段，AND 语义下必须返回空——预期为空的对照"
+  },
+  {
+   "id": "script-01",
+   "group": "script",
+   "query": "齐桓公",
+   "must_hit": true,
+   "baseline_hits": 151,
+   "expect_same_as": "script-02",
+   "note": "简繁对：与 script-02 必须同 hit_total",
+   "baseline_blocks": 126
+  },
+  {
+   "id": "script-02",
+   "group": "script",
+   "query": "齊桓公",
+   "must_hit": true,
+   "baseline_hits": 151,
+   "note": "繁体直输",
+   "baseline_blocks": 126
+  },
+  {
+   "id": "script-03",
+   "group": "script",
+   "query": "苏秦",
+   "must_hit": true,
+   "baseline_hits": 231,
+   "expect_same_as": "script-04",
+   "note": "简繁对",
+   "baseline_blocks": 164
+  },
+  {
+   "id": "script-04",
+   "group": "script",
+   "query": "蘇秦",
+   "must_hit": true,
+   "baseline_hits": 231,
+   "note": "繁体直输",
+   "baseline_blocks": 164
+  },
+  {
+   "id": "script-05",
+   "group": "script",
+   "query": "张仪",
+   "must_hit": true,
+   "baseline_hits": 355,
+   "expect_same_as": "script-06",
+   "note": "简繁对",
+   "baseline_blocks": 228
+  },
+  {
+   "id": "script-06",
+   "group": "script",
+   "query": "張儀",
+   "must_hit": true,
+   "baseline_hits": 355,
+   "note": "繁体直输",
+   "baseline_blocks": 228
+  },
+  {
+   "id": "script-07",
+   "group": "script",
+   "query": "郑庄公",
+   "must_hit": true,
+   "baseline_hits": 19,
+   "expect_same_as": "script-08",
+   "note": "简繁对",
+   "baseline_blocks": 17
+  },
+  {
+   "id": "script-08",
+   "group": "script",
+   "query": "鄭莊公",
+   "must_hit": true,
+   "baseline_hits": 19,
+   "note": "繁体直输",
+   "baseline_blocks": 17
+  },
+  {
+   "id": "script-09",
+   "group": "script",
+   "query": "晋文公",
+   "must_hit": true,
+   "baseline_hits": 110,
+   "expect_same_as": "script-10",
+   "note": "简繁对",
+   "baseline_blocks": 88
+  },
+  {
+   "id": "script-10",
+   "group": "script",
+   "query": "晉文公",
+   "must_hit": true,
+   "baseline_hits": 110,
+   "note": "繁体直输",
+   "baseline_blocks": 88
+  },
+  {
+   "id": "section-01",
+   "group": "section",
+   "query": "秦始皇本紀",
+   "must_hit": true,
+   "recall": "section",
+   "baseline_hits": 2,
+   "baseline_blocks": 3,
+   "expect_match_type": "section",
+   "note": "史記篇名，正文 0 段。第六点一阶段前不可检索（旧 neg-04），现在由 sections.first_row 区间命中，返回该篇开头"
+  },
+  {
+   "id": "section-02",
+   "group": "section",
+   "query": "大禹謨",
+   "must_hit": true,
+   "recall": "section",
+   "baseline_hits": 1,
+   "baseline_blocks": 2,
+   "expect_match_type": "section",
+   "note": "尚書篇名，与 section-01 同类（旧 neg-05）"
+  },
+  {
+   "id": "section-03",
+   "group": "section",
+   "query": "五帝本紀",
+   "must_hit": true,
+   "recall": "section",
+   "baseline_hits": 2,
+   "baseline_blocks": 3,
+   "note": "正文与篇名同时命中：正文块在前、篇名块在后，锚点若已落在正文块里则合并标 both（§7 不产生重复 Passage）"
+  },
+  {
+   "id": "section-04",
+   "group": "section",
+   "query": "秦本紀",
+   "must_hit": true,
+   "recall": "section",
+   "baseline_hits": 8,
+   "baseline_blocks": 9,
+   "note": "正文 2 段 + 篇名 1 条。精确匹配必须压过「秦始皇本紀」（后者包含前者），故命中的是秦本紀而非秦始皇本紀"
+  },
+  {
+   "id": "section-05",
+   "group": "section",
+   "query": "尚書逸文",
+   "must_hit": true,
+   "recall": "section",
+   "baseline_hits": 0,
+   "baseline_blocks": 11,
+   "note": "同一个篇名在 24 个区间上重复（尚書逸文横跨 24 个文件）。实测 11 块——多个区间指向同一条首记录时只产出一块"
+  },
+  {
+   "id": "section-06",
+   "group": "section",
+   "query": "晉語",
+   "must_hit": true,
+   "recall": "section",
+   "baseline_hits": 8,
+   "baseline_blocks": 16,
+   "note": "晉語 在 11 个区间上重复；正文 6 段 + 篇名块。验证正文命中整体排在篇名命中之前"
+  },
+  {
+   "id": "pagination-01",
+   "group": "pagination",
+   "query": "之",
+   "must_hit": true,
+   "baseline_hits": 75766,
+   "baseline_blocks": 42166,
+   "page_size": 100,
+   "check_pagination": true,
+   "note": "全库最高频单字。第六点一阶段前组装上限 600 段 → 只有 328 块，翻到第 4 页就空了；现在 9906 块，末页必须真的翻得到。注意 mode 会改块数：这条是 standard（默认），short 下更多"
+  },
+  {
+   "id": "pagination-02",
+   "group": "pagination",
+   "query": "大夫",
+   "must_hit": true,
+   "baseline_hits": 3531,
+   "baseline_blocks": 2994,
+   "check_pagination": true,
+   "note": "解除上限前 329 块、truncated=True；现在 1080 块、truncated=False"
+  },
+  {
+   "id": "pagination-03",
+   "group": "pagination",
+   "query": "齊",
+   "must_hit": true,
+   "baseline_hits": 8204,
+   "baseline_blocks": 5131,
+   "check_pagination": true,
+   "note": "单字走 like；解除上限前 210 块"
+  },
+  {
+   "id": "pagination-04",
+   "group": "pagination",
+   "query": "將軍",
+   "must_hit": true,
+   "baseline_hits": 3975,
+   "baseline_blocks": 2698,
+   "check_pagination": true,
+   "note": "对照：命中多但块少（命中密集），块数不到命中数的一半"
+  },
+  {
+   "id": "passage-01",
+   "group": "passage",
+   "query": "齊桓公",
+   "must_hit": true,
+   "baseline_hits": 151,
+   "mode": "long",
+   "note": "长模式（max_passages/max_chars 都放宽）：块最长，文本截断在这里最容易显形（逐字对拍见上，对所有 case 都跑）",
+   "baseline_blocks": 115
+  },
+  {
+   "id": "passage-02",
+   "group": "passage",
+   "query": "管仲",
+   "must_hit": true,
+   "baseline_hits": 189,
+   "mode": "long",
+   "page_size": 50,
+   "note": "同上，换一本书（史記/戰國策/左傳/國語都有）与更大的页",
+   "baseline_blocks": 133
+  },
+  {
+   "id": "neg-02",
+   "group": "negative",
+   "query": "坑儒",
+   "must_hit": false,
+   "expect_class": "Coverage",
+   "note": "实测正文 0 段（异体字 阬儒 亦为 0）；焚書 有 6 段，但坑儒确不在库"
+  },
+  {
+   "id": "neg-03",
+   "group": "negative",
+   "query": "商鞅變法",
+   "must_hit": false,
+   "expect_class": "Coverage",
+   "note": "现代合成词，古籍正文不会以此四字连写；商鞅 单独有 9 段"
+  },
+  {
+   "id": "neg-04",
+   "group": "negative",
+   "query": "秦策一",
+   "must_hit": false,
+   "expect_class": "Coverage",
+   "note": "本底本（SBCK 鮑彪校注本）**没有「秦策一」式编次**：戰國策 的篇题粒度为「卷第一~卷第十，每卷一个国别」，12 个国别标题是 東周/西周/秦/齊/楚/趙/魏/韓/燕/宋/衛/中山。第六点二阶段已把国别抽成 sections（正例见 qin_han 的 qh-section-06/07），所以这条负例现在考的是另一件事：**「秦策一」这个写法在本底本不存在**，正文 0 段、篇名 0 条。不是覆盖缺口，是用词与底本不符"
+  },
+  {
+   "id": "neg-05",
+   "group": "negative",
+   "query": "燕策",
+   "must_hit": false,
+   "expect_class": "Coverage",
+   "note": "与 neg-04 同一原因：本底本只有国别篇题（燕），没有「燕策」式篇名。正例是 qin_han 的 qh-section-06（西周）"
+  },
+  {
+   "id": "neg-06",
+   "group": "negative",
+   "query": "重耳 秦穆公",
+   "must_hit": false,
+   "expect_class": "Coverage",
+   "note": "实测共段 = 0（单独各 198 / 25）。多词 AND 语义正确工作，属预期为空的对照"
+  }
+ ]
+}

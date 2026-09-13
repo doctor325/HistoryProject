@@ -50,8 +50,14 @@
   };
   const DEFAULT_MODE = "standard";
 
-  // 单次搜索最多组装多少个 block（防热词把全库拖进来；超出则如实标注 truncated）。
-  const MAX_BLOCKS_PER_QUERY = 600;
+  // 单次搜索最多组装多少条**命中**。安全阀，不是展示上限——超限才置 truncated。
+  // 与 Python 的 MAX_HITS_PER_QUERY 同值同名（原为 MAX_BLOCKS_PER_QUERY = 600，
+  // 实测 '之' 33241 命中被截到 600 只出 328 块，全量是 4058 块且只要 0.97s）。
+  const MAX_HITS_PER_QUERY = 100000;
+
+  // 篇名命中最多产出多少个片段（匹配到的 section 数上限）。篇名走**部分匹配**，
+  // 一个字能匹配到一串篇名（「公」→ 隱公/桓公/…），不设上限会被短查询灌满。
+  const MAX_SECTION_BLOCKS = 50;
 
   // 行窗口：命中行两侧至少取 FALLBACK_MARGIN 条（无结构证据时的兜底观察范围），
   // 窗口总跨度不超过 WINDOW_HARD_CAP（防 src 边界远在千里时拖进半个文件）。
@@ -109,6 +115,27 @@
     return null;
   }
 
+  /** 单行的边界键：行上有结构字段就用行上的，没有就回退到篇名区间表。
+   *
+   *  为什么需要回退：`passages.section` **只标在标题行上，不向下传播**（见下方
+   *  「篇名检索」一节的说明）。史記/國語的正文行 section 全是 NULL，于是每一行
+   *  的 boundaryKey 都是 null —— 严格口径下「null ↔ null」算同键，任何两行都能
+   *  互并，块于是横跨篇界（实测 9905 块里 130 块）。
+   *
+   *  回退键必须复用 `["sec", label, ab]` 的形状，否则与标题行的键永远不相等，
+   *  正文反而认不出自己的标题行（键长不等 → canTake 判不同段）。
+   *
+   *  secIdx 为 null（合成小库、老调用方）时**逐字保持今日行为**：键就是 null。
+   *  与 Python 侧 _row_key 同形。 */
+  function rowKey(row, secIdx) {
+    const key = boundaryKey(row.section, row.subsection, row.ab);
+    if (key === null && secIdx) {
+      const label = sectionAt(secIdx, row.file_id, row.row_no);
+      if (label) return ["sec", label, null];
+    }
+    return key;
+  }
+
   /** rows[i] 能否并入以 refI 为参照的扩展区间（判定统一的唯一出口）。
    *
    *  非 passage 行（`# src:` / `<pb:>` / 标题）在正文里透明穿过：既不进片段
@@ -153,13 +180,22 @@
     return -1;
   }
 
-  /** 预计算每行的边界证据 (结构键, 段序号, layer)。 */
-  function marksFor(rows, segments) {
-    return rows.map((r) => {
-      const s = segments.length ? segOf(r.row_no, segments) : -1;
-      return [boundaryKey(r.section, r.subsection, r.ab),
-              s >= 0 ? s : null, r.layer];
-    });
+  /** 预计算每行的边界证据 (结构键, 段序号, layer)。
+   *
+   *  rows 与 segments 都按行号有序，所以段序号一路往前走就行（线性），不必每行
+   *  都从头扫一遍 segOf。与 Python 侧 marks_for 同形。
+   *
+   *  secIdx 只喂给 rowKey 的回退分支（纯内存二分，不碰 SQL）。 */
+  function marksFor(rows, segments, secIdx = null) {
+    const out = [];
+    let k = 0;                              // 第一个 hi 还大于本行号的区间
+    for (let i = 0; i < rows.length; i++) {
+      const r = rows[i], rn = r.row_no;
+      while (k < segments.length && segments[k][1] <= rn) k++;
+      const seg = (k < segments.length && segments[k][0] <= rn) ? k : null;
+      out.push([rowKey(r, secIdx), seg, r.layer]);
+    }
+    return out;
   }
 
   // --------------------------------------------------------------- 有限行加载
@@ -236,12 +272,15 @@
     /** 取覆盖 [rowLo, rowHi] 的窗口，返回 rows（按 row_no, seq）。
      *
      *  带 WINDOW_PAD 余量；单次跨度不超过 WINDOW_HARD_CAP。同文件内若已缓存
-     *  的窗口能满足请求（有膨胀余量），直接复用。 */
-    window(fileId, rowLo, rowHi) {
+     *  的窗口能满足请求（有膨胀余量），直接复用。
+     *
+     *  fresh=true 表示「这一屏必须是全新的」——分批取数时用，缓存里那份是上一批
+     *  的，复用它会与上一批的区间重叠。 */
+    window(fileId, rowLo, rowHi, fresh = false) {
       const lo = Math.max(1, rowLo - WINDOW_PAD);
       const hi = Math.min(rowHi + WINDOW_PAD, lo + WINDOW_HARD_CAP - 1);
       const cached = this._winCache.get(fileId);
-      if (cached && cached.lo <= lo && cached.hi >= hi) return cached.rows;
+      if (!fresh && cached && cached.lo <= lo && cached.hi >= hi) return cached.rows;
 
       const rows = [];
       const sp = this.corpus.spanOfFile(fileId);
@@ -272,7 +311,13 @@
     const maxP = limits.max_passages, maxC = limits.max_chars;
     const target = limits.target_chars;
     const n = rows.length;
-    const tlen = (j) => (rows[j].text_orig || "").length;
+    // **必须用 cplen 而不是 .length**：Python 侧是 len()，数字符（码位）；JS 的
+    // .length 数 UTF-16 码元。四庫本正文里有扩展区字形（𠡠 U+20860、𫝊 U+2B74A…），
+    // 一个字形在 JS 里算 2，于是同一个片段在两侧的「字数」能差出好几个，
+    // 卡在上限边缘时块边界就会分叉（实测「之」/short 在後漢書 142 号文件上，
+    // 累计 259 码位 = 261 码元，一边装得下、一边装不下，块数差 1）。本文件
+    // 上方早有 cplen 就是为这个；n_chars 也一直用它，只有这几处累加漏了。
+    const tlen = (j) => cplen(rows[j].text_orig || "");
 
     let lo = i, hi = i;
     let size = tlen(i), count = 1;
@@ -331,24 +376,170 @@
     while (b + 1 < n && extra < maxExtraChars &&
            canTake(rows[b + 1], marks, b + 1, refB)) {
       b += 1;
-      extra += (rows[b].text_orig || "").length;
+      extra += cplen(rows[b].text_orig || "");      // 码位，见 expand 里的说明
       if (rows[b].kind === "passage") refB = b;
     }
     while (a - 1 >= 0 && extra < maxExtraChars &&
            canTake(rows[a - 1], marks, a - 1, refA)) {
       a -= 1;
-      extra += (rows[a].text_orig || "").length;
+      extra += cplen(rows[a].text_orig || "");      // 码位
       if (rows[a].kind === "passage") refA = a;
     }
     return [a, b];
+  }
+
+  /** [lo,hi] 中从 lo 起还装得下的最大下标（计数口径与 expand 完全一致）。
+   *
+   *  [lo,lo] 本身一定装得下，所以返回值 ≥ lo。与 Python 侧 _fit_hi 同形。
+   *
+   *  **不只是长度**。合并两块时区间会被撑大，而撑大的那一段从没经过 canTake：
+   *  只按字数/条数收，就能把邻篇的正文并进来——实测这才是块横跨篇界的大头
+   *  （9905 块里 130 块，只修 marksFor 只消除 18%）。所以从 okHi + 1 起补做
+   *  同一套结构判定：键变了就停在这里，不再往下装。
+   *
+   *  okHi（默认 = lo）是「已经被 expand 验证过同段」的那一段的上界，重复判它
+   *  没有意义，也不该因为参照行不同而改判。marks 为 null 时不做结构检查，
+   *  等于今日行为。 */
+  function fitHi(rows, lo, hi, limits, marks = null, okHi = null) {
+    const maxP = limits.max_passages, maxC = limits.max_chars;
+    if (okHi === null) okHi = lo;
+    let n = 0, s = 0, last = lo;
+    let ref = null;                       // 最近一条真正并入的 passage 的下标
+    const end = Math.min(hi, rows.length - 1);
+    for (let j = lo; j <= end; j++) {
+      if (marks !== null && j > okHi && ref !== null) {
+        if (!canTake(rows[j], marks, j, ref)) return j - 1;
+      }
+      n += 1;
+      s += cplen(rows[j].text_orig || "");     // 码位：计数口径必须与 expand 一致
+      if (n > maxP || s > maxC) return j - 1;
+      if (rows[j].kind === "passage") ref = j;
+      last = j;
+    }
+    return last;
+  }
+
+  // ----------------------------------------------------------------- 篇名检索
+  //
+  // 篇名的归属关系**不在** passages.section 里：那一列只标在标题行上，不向下传播
+  // （史記文件 82 的 17410 行正文里只有 11 行有值，正好是 11 个本紀标题）。真正的
+  // 关系在 sections.first_row 的区间里——实测 11 篇区间之和 14919 恰等于该文件正文
+  // 总数，无重叠无遗漏。所以这里不看 corpus 的 section 列，只看 sections 区间表，
+  // 与 Python `_section_index` 同一口径。
+
+  /** corpus.sections（[{file_id, label, first_row}, …]）→
+   *  Map<file_id, [[first_row, label], …]>，first_row 升序。 */
+  function sectionIndex(corpus) {
+    const idx = new Map();
+    for (const s of (corpus.sections || [])) {
+      if (s.file_id === null || s.first_row === null || s.label === null) continue;
+      if (!idx.has(s.file_id)) idx.set(s.file_id, []);
+      idx.get(s.file_id).push([s.first_row, s.label]);
+    }
+    for (const spans of idx.values()) spans.sort((a, b) => a[0] - b[0]);
+    return idx;
+  }
+
+  /** 该行所属篇名 = 区间内最后一个 first_row <= row_no 的 label；无区间则 null。 */
+  function sectionAt(idx, fileId, rowNo) {
+    const spans = idx.get(fileId);
+    if (!spans || !spans.length) return null;
+    let lo = 0, hi = spans.length - 1, best = null;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      if (spans[mid][0] <= rowNo) { best = spans[mid][1]; lo = mid + 1; }
+      else hi = mid - 1;
+    }
+    return best;
+  }
+
+  /** 区间上界（不含）= 同文件下一个 first_row；已是最后一个则 null（到文件末）。 */
+  function sectionEnd(idx, fileId, firstRow) {
+    const spans = idx.get(fileId) || [];
+    for (let i = 0; i < spans.length; i++) {
+      if (spans[i][0] === firstRow) return i + 1 < spans.length ? spans[i + 1][0] : null;
+    }
+    return null;
+  }
+
+  /** 篇名命中 → { hits: [[passage_id, file_id, row_no, seq, 0.0], …], capped }。
+   *
+   *  锚点取区间内**首条 kind='passage' 行**——返回这一篇的开头，而不是标题行
+   *  （标题行不是正文，进了块也会被 shapeBlock 丢掉）。区间内无正文则跳过。
+   *  匹配顺序与 Python 的 ORDER BY 一致：精确匹配最前，再篇名短的优先，
+   *  最后按文件与行序稳定。这个次序决定**谁进得了 MAX_SECTION_BLOCKS**；
+   *  展示顺序不跟它走——篇名块与正文块一起按 cmpRank 排（行序在键里），
+   *  一篇一篇顺着读下去比按匹配度跳着读更合直觉。 */
+  function sectionHits(corpus, qTrad, bid, edition, idx) {
+    const matches = (corpus.sections || []).filter((s) => {
+      if (s.file_id === null || s.first_row === null || s.label === null) return false;
+      if (s.label !== qTrad && s.label.indexOf(qTrad) < 0) return false;
+      if (bid && s.book_id !== bid) return false;
+      if (edition && String(s.family || "").toLowerCase() !== edition) return false;
+      return true;
+    });
+    matches.sort((x, y) =>
+      ((y.label === qTrad ? 1 : 0) - (x.label === qTrad ? 1 : 0)) ||
+      (cplen(x.label) - cplen(y.label)) ||
+      (x.file_id - y.file_id) || (x.first_row - y.first_row));
+    const capped = matches.length >= MAX_SECTION_BLOCKS;
+
+    const out = [], seen = new Set();
+    for (const s of matches.slice(0, MAX_SECTION_BLOCKS)) {
+      const end = sectionEnd(idx, s.file_id, s.first_row);
+      const p = firstPassageIn(corpus, s.file_id, s.first_row, end);
+      if (!p || seen.has(p.passage_id)) continue;
+      seen.add(p.passage_id);
+      out.push([p.passage_id, p.file_id, p.row_no, p.seq, 0.0]);
+    }
+    return { hits: out, capped: capped };
+  }
+
+  /** 区间内首条正文行（按 row_no, seq）。只在**该文件的行区间**里扫：corpus 是
+   *  按文件打包的、同文件行连续且按 row_no 有序（FileCache.window 的二分也靠这个
+   *  不变式），所以一撞到 row_no 越界就能停，不必扫全表。 */
+  function firstPassageIn(corpus, fileId, fromRow, toRow) {
+    const span = corpus.spanOfFile(fileId);
+    if (!span) return null;
+    const cRow = corpus.col.row_no, cSeq = corpus.col.seq, cKind = corpus.col.kind;
+    const kinds = corpus.dicts.kind;
+    const rows = corpus.rows;
+    for (let i = span[0]; i < span[1]; i++) {
+      const r = rows[i];
+      if (r[cKind] >= 0 && kinds[r[cKind]] !== "passage") continue;
+      const rn = r[cRow];
+      if (rn < fromRow) continue;
+      if (toRow !== null && rn >= toRow) break;
+      return { passage_id: corpus.cell(i, "passage_id"), file_id: fileId,
+               row_no: rn, seq: r[cSeq] };
+    }
+    return null;
+  }
+
+  /** 片段排序键：命中多的在前（任务书 §十四），同数按相关度，再按书/文件/行序稳定。
+   *
+   *  正文块与篇名块**各自**用这个键排（篇名块的 match_count 恒为 1、score 恒为 0，
+   *  排出来自然靠后），再由调用方把两组接起来——不混排，免得伪命中插进正文中间。 */
+  function rankKey(b) {
+    return [-b.match_count, b.score === null ? 0.0 : b.score,
+            b.book_id || "", b.file_no || 0, b.row_first];
+  }
+  function cmpRank(x, y) {
+    const a = rankKey(x), b = rankKey(y);
+    if (a[0] !== b[0]) return a[0] - b[0];
+    if (a[1] !== b[1]) return a[1] - b[1];
+    if (a[2] !== b[2]) return cmpStr(a[2], b[2]);
+    if (a[3] !== b[3]) return a[3] - b[3];
+    return a[4] - b[4];
   }
 
   // ----------------------------------------------------------------- 组装入口
 
   /** hits = [[passage_id, file_id, row_no, seq, score], …] → 全部 block（未排序）。
    *
-   *  同一文件内反复取数走缓存；区间重叠的块合并而不是重复展示。 */
-  function buildResultBlocks(corpus, hits, mode = DEFAULT_MODE) {
+   *  同一文件内反复取数走缓存；区间重叠的块合并而不是重复展示。
+   *  secIdx 是 sectionIndex 的产物，只用于给块回填篇名（可为 null）。 */
+  function buildResultBlocks(corpus, hits, mode = DEFAULT_MODE, secIdx = null) {
     const limits = MODE_LIMITS[mode];
     const cache = new FileCache(corpus);
 
@@ -360,52 +551,89 @@
       byFile.get(h[1]).push(h);
     }
 
+    let batchId = 0;
     for (const [fid, hs] of byFile) {
       const segments = cache.segments(fid);
       // 窗口要足够宽，直到结构边界或硬上限先到（否则扩展会被窗口截断，
       // 片段看起来「短」其实是取数不够）。普通记录很短，按条数给足余量。
       const margin = Math.min(Math.floor(WINDOW_HARD_CAP / 2),
                               FALLBACK_MARGIN + limits.max_passages * 2);
-      const loRow = Math.min(...hs.map((h) => h[2]));
-      const hiRow = Math.max(...hs.map((h) => h[2]));
-      const rows = cache.window(fid, loRow - margin, hiRow + margin);
-      if (!rows.length) continue;
-      const marks = marksFor(rows, segments);
-      const pos = new Map(rows.map((r, i) => [r.passage_id, i]));
-      const sorted = hs.slice().sort((x, y) =>
-        (x[2] - y[2]) || (x[3] - y[3]));
-      for (const h of sorted) {
-        const pid = h[0];
-        const i = pos.get(pid);
-        if (i === undefined) continue;  // 命中行不在窗口内（极端越界），本轮不组装
-        const [a, b, cutF, cutB] = expand(rows, i, limits, marks);
-        raw.push({ file_id: fid, lo: a, hi: b, rows, marks,
-                   match_count: 1, score: h[4], hit_passage_id: pid,
-                   more_before: cutB, more_after: cutF });
+      const sorted = hs.slice().sort((x, y) => (x[2] - y[2]) || (x[3] - y[3]));
+      // 一个文件的命中行跨度可能远超一次取数的行数上限（「之」在史記文件 95
+      // 横跨 59206 行）。**必须分批取数**：只取一个窗口时，窗口以外的命中会
+      // 被下面的 pos.get() === undefined 静默丢掉——实测「將軍」1142 处命中
+      // 只组装出 139 处（88% 不见了），而响应里 truncated 还是 false。
+      //
+      // 分批必须首尾相接、互不重叠：窗口重叠 = 同一段正文读两遍，窗口留缝 =
+      // 命中被丢。下一批的取数起点定在上一批窗口末行之后（+WINDOW_PAD 抵消
+      // window() 自己减掉的那段）。
+      let nextLo = null, i = 0;
+      while (i < sorted.length) {
+        const lo = nextLo === null ? sorted[i][2] - margin
+                                   : Math.max(nextLo, sorted[i][2] - margin);
+        const winLo = Math.max(1, lo - WINDOW_PAD);
+        const winHi = winLo + WINDOW_HARD_CAP - 1;
+        const batch = [];
+        while (i < sorted.length && sorted[i][2] <= winHi) batch.push(sorted[i++]);
+        if (!batch.length) batch.push(sorted[i++]);   // 兜底：绝不空转
+        batchId += 1;
+        const rows = cache.window(fid, lo, batch[batch.length - 1][2] + margin, true);
+        if (!rows.length) continue;
+        nextLo = rows[rows.length - 1].row_no + 1 + WINDOW_PAD;
+        const marks = marksFor(rows, segments, secIdx);
+        const pos = new Map(rows.map((r, k) => [r.passage_id, k]));
+        for (const h of batch) {
+          const pid = h[0];
+          const j = pos.get(pid);
+          if (j === undefined) continue;  // 该行落在取数窗口之外（文件头/尾越界）
+          const [a, b, cutF, cutB] = expand(rows, j, limits, marks);
+          raw.push({ file_id: fid, batch: batchId, lo: a, hi: b, rows, marks,
+                     match_count: 1, score: h[4], hit_passage_id: pid, hit_i: j,
+                     more_before: cutB, more_after: cutF });
+        }
       }
     }
 
-    // 2) 区间合并（同文件、重叠或相邻 → 并集）
+    // 2) 区间合并（同文件同批、重叠或相邻 → 并集）。**合并也受显示上限约束**
+    //    ——块是「一屏」，不是「这一段的全文」（任务书 §十二）。命中密的地方
+    //    相邻窗口会连成一条长链，不设限时一个 standard 块实测长到 8768 字、
+    //    517 段（上限 900 字 / 40 段）。装不下就在接缝处断开。
+    //
+    //    按 (文件, 批) 分组、组内从后往前比：下标只在同一批内可比，且 raw 已按
+    //    行序、块区间长度有上限，可能与本块重叠的只有组尾那几条。全局线性扫是
+    //    O(命中 × 块)，「之」实测 9.45s——分组后回到亚秒级。
+    const groups = new Map();
     const merged = [];
     for (const blk of raw) {
-      let hit = false;
-      for (const m of merged) {
-        if (m.file_id !== blk.file_id) continue;
-        if (blk.lo <= m.hi + 1 && blk.hi >= m.lo - 1) {
-          m.lo = Math.min(m.lo, blk.lo);
-          m.hi = Math.max(m.hi, blk.hi);
-          m.match_count += blk.match_count;
-          if (blk.score < m.score) {
-            m.score = blk.score;
-            m.hit_passage_id = blk.hit_passage_id;
+      const key = blk.file_id + ":" + blk.batch;
+      if (!groups.has(key)) groups.set(key, []);
+      const group = groups.get(key);
+      let pending = Object.assign({}, blk);
+      for (let k = group.length - 1; k >= 0; k--) {
+        const m = group[k];
+        if (m.hi < pending.lo - 1) break;   // 组内区间按行序递增，再往前只会更远
+        // okHi = m.hi：这一段是 expand 已经验证过同段的，从它之后再补结构检查
+        // ——撑大的那一截必须和块的尾部同段，否则并进来的就是邻篇。
+        m.hi = fitHi(m.rows, m.lo, Math.max(m.hi, pending.hi), limits, m.marks, m.hi);
+        if (pending.hit_i <= m.hi) {
+          // 命中点落在前一块里了：这一次命中归它（§七：不重复），本块作废。
+          // 作废而不是「保留后半截」——片段是用来**看见命中**的，后半截没有
+          // 命中，留下就是一个让人看不出为什么出现的结果。那半截正文读者仍能
+          // 从前一块展开读到，没有丢。
+          m.match_count += 1;
+          if (pending.score < m.score) {
+            m.score = pending.score;
+            m.hit_passage_id = pending.hit_passage_id;
           }
-          m.rows = blk.rows.length > m.rows.length ? blk.rows : m.rows;
-          m.marks = blk.marks.length > m.marks.length ? blk.marks : m.marks;
-          hit = true;
+          pending = null;
           break;
         }
+        pending.lo = m.hi + 1;              // 接缝之后另起，接着往下读
       }
-      if (!hit) merged.push(Object.assign({}, blk));
+      if (pending !== null) {
+        group.push(pending);
+        merged.push(pending);
+      }
     }
 
     // 3) 成文。合并会把区间撑大，单次扩展记的截断标记不再作数——按最终区间
@@ -419,7 +647,7 @@
       const pids = seg.filter((r) => r.kind === "passage")
         .map((r) => r.passage_id);
       if (!pids.length) continue;
-      shaped.push(shapeBlock(seg, pids, m));
+      shaped.push(shapeBlock(seg, pids, m, secIdx));
     }
     return { blocks: shaped, limits };
   }
@@ -428,8 +656,13 @@
    *
    *  只渲染 kind='passage' 的记录（真实史料正文）；`# src:`/`<pb:>`/标题等
    *  解析元数据行不进入片段正文——它们只在数据检查台出现（任务书 §十七）。
-   *  页码信息另由 pb_first/pb_last 如实给出。 */
-  function shapeBlock(seg, pids, m) {
+   *  页码信息另由 pb_first/pb_last 如实给出。
+   *
+   *  section 优先取行上的值；行上没有（史記/國語的正文行该列是 NULL，篇名只标在
+   *  标题行）就用区间推——不推的话史記的结果根本不显示篇名（任务书 §十八）。 */
+  function shapeBlock(seg, pids, m, secIdx) {
+    const sectionOf = (r) =>
+      (r.section || (secIdx ? sectionAt(secIdx, r.file_id, r.row_no) : null));
     const body = seg.filter((r) => r.kind === "passage");
     const text = body.map((r) => r.text_orig || "").join("");
     const pbs = body.filter((r) => r.pb_block || r.pb_page);
@@ -448,7 +681,7 @@
       score: m.score,
       text: text,
       juan: first ? first.juan : null,
-      section: first ? first.section : null,
+      section: first ? sectionOf(first) : null,
       subsection: first ? first.subsection : null,
       division: first ? first.division : null,
       ab: first ? first.ab : null,
@@ -541,8 +774,9 @@
     //
     // 为什么必须显式排：JS 的 likeScan 走的是**打包序**（按 book_id/file_no/
     // row_no 分组，窗口取数要求同文件的行连续），与 passage_id 序不同 ——
-    // 而这个顺序是**可观测**的，`hit_rows[:600]`（MAX_BLOCKS_PER_QUERY）截的
-    // 就是它。不排的话，命中超过 600 的查询两边会组装出完全不同的片段集
+    // 而这个顺序是**可观测**的：区间合并是顺序敏感的（谁先入 `merged` 决定谁
+    // 吸收谁、以及块的 hit_passage_id 取哪条），且 `hit_rows[:MAX_HITS_PER_QUERY]`
+    // 截的也是它。不排的话两边会组装出不同的片段集
     // （实测 '齊' 6079 命中：match_count_sum 291 vs 162）。
     const pid = corpus.col.passage_id;
     const order = hits.map((_, k) => k)
@@ -621,29 +855,54 @@
       book: bid || "全部", edition: edition || "全部",
       hit_total: hitTotal, page: page, page_size: pageSize,
     };
-    if (!hitRows.length) {
+    const secIdx = sectionIndex(corpus);
+    // 篇名命中：单独组装（不混进正文命中，否则伪命中会把 match_count 灌高、
+    // 打乱排序），组装后整体排在正文命中之后（§6：正文命中优先于篇名命中）。
+    const sec = sectionHits(corpus, qTrad, bid, edition, secIdx);
+    // 「正文没有」不等于「什么都没有」：搜「秦始皇本紀」正文命中是 0，
+    // 篇名命中却有——空结果的早退必须把两边一起看。
+    if (!hitRows.length && !sec.hits.length) {
       Object.assign(base, {
-        total: 0, match_count_sum: 0, truncated: false,
+        total: 0, match_count_sum: 0, truncated: false, has_more: false,
+        section_truncated: false,
         limits: MODE_LIMITS[mode], results: [],
       });
       return base;
     }
 
-    const overflow = hitTotal > MAX_BLOCKS_PER_QUERY;
-    const hits = hitRows.slice(0, MAX_BLOCKS_PER_QUERY)
+    const overflow = hitTotal > MAX_HITS_PER_QUERY;
+    const hits = hitRows.slice(0, MAX_HITS_PER_QUERY)
       .map((r) => [r[0], r[1], r[2], r[3], r[4] === null ? 0.0 : r[4]]);
 
-    const out = buildResultBlocks(corpus, hits, mode);
-    const meta = fileMeta(corpus, new Set(out.blocks.map((b) => b.file_id)));
-    for (const b of out.blocks) Object.assign(b, meta[b.file_id] || {});
+    const out = buildResultBlocks(corpus, hits, mode, secIdx);
+    const out2 = buildResultBlocks(corpus, sec.hits, mode, secIdx);
 
-    // 排序：命中多的在前（任务书 §十四），同数按相关度，再按书/文件/行序稳定
-    const blocks = out.blocks.slice().sort((x, y) =>
-      (y.match_count - x.match_count) ||
-      ((x.score === null ? 0.0 : x.score) - (y.score === null ? 0.0 : y.score)) ||
-      cmpStr(x.book_id || "", y.book_id || "") ||
-      ((x.file_no || 0) - (y.file_no || 0)) ||
-      (x.row_first - y.row_first));
+    const fileIds = new Set(out.blocks.map((b) => b.file_id));
+    for (const b of out2.blocks) fileIds.add(b.file_id);
+    const meta = fileMeta(corpus, fileIds);
+    for (const b of out.blocks) {
+      Object.assign(b, meta[b.file_id] || {});
+      b.match_type = "text";
+    }
+    for (const b of out2.blocks) {
+      Object.assign(b, meta[b.file_id] || {});
+      b.match_type = "section";
+    }
+
+    const textBlocks = out.blocks.slice().sort(cmpRank);
+    const secBlocks = out2.blocks.slice().sort(cmpRank);
+
+    // 去重（§7「不产生重复 Passage」）：篇名块的锚点若已落在某个正文块里，
+    // 就不再单列——把它改标 both，读者从此知道这一篇既是篇名命中也是正文命中。
+    const owner = new Map();
+    for (const b of textBlocks) for (const pid of b.passage_ids) owner.set(pid, b);
+    const kept = [];
+    for (const b of secBlocks) {
+      const hit = owner.get(b.hit_passage_id);
+      if (hit !== undefined) hit.match_type = "both";
+      else kept.push(b);
+    }
+    const blocks = textBlocks.concat(kept);
 
     const lo = (page - 1) * pageSize;
     const pageBlocks = blocks.slice(lo, lo + pageSize)
@@ -652,6 +911,9 @@
       total: blocks.length,                   // 片段数（合并后，精确）
       match_count_sum: blocks.reduce((s, b) => s + b.match_count, 0),
       truncated: overflow,
+      has_more: page * pageSize < blocks.length,
+      // 篇名匹配被 MAX_SECTION_BLOCKS 截断（短查询会匹配到一串篇名）。
+      section_truncated: sec.capped,
       limits: Object.assign({}, MODE_LIMITS[mode]),
       results: pageBlocks,
     });
@@ -679,7 +941,12 @@
    *  以「当前片段的首/末记录」为界向外取数——不是从命中点取，否则取到的行
    *  会与已有片段重叠。行进中遇到与 block 相同的停止条件（layer 变 / 段落号变）
    *  即止，并如实告知是否读到了头（reaches_* 为 true 表示这一段到此为止，
-   *  不是因为字数上限被截断）。 */
+   *  不是因为字数上限被截断）。
+   *
+   *  篇名区间表**就地自建**（corpus.sections 已在内存里，量级千行）。展开与组装
+   *  必须用同一个口径：片段在篇界停住、展开却读过去，就会出现「读到的正文不
+   *  属于片段自称的那一篇」。自建而不是要求调用方传，是为了让所有老调用点自动
+   *  一致（与 Python 侧 expand_block 同形）。 */
   function expandBlock(corpus, passageId, opts) {
     opts = opts || {};
     let count = opts.count === undefined ? 20 : opts.count;
@@ -708,11 +975,13 @@
       return r;
     };
 
+    let secIdx = opts.secIdx === undefined ? null : opts.secIdx;
+    if (secIdx === null) secIdx = sectionIndex(corpus);
     const segs = cache.segments(fid);
     const baseSeg = segOf(hit.row_no, segs);
 
     const markOf = (row) => [
-      boundaryKey(row.section, row.subsection, row.ab),
+      rowKey(row, secIdx),
       segs.length ? segOf(row.row_no, segs) : null,
       row.layer];
 
@@ -817,11 +1086,11 @@
   }
 
   NS.resultBlock = {
-    MODE_LIMITS, DEFAULT_MODE, MAX_BLOCKS_PER_QUERY,
+    MODE_LIMITS, DEFAULT_MODE, MAX_HITS_PER_QUERY, MAX_SECTION_BLOCKS,
     FALLBACK_MARGIN, WINDOW_HARD_CAP, WINDOW_PAD, ROW_COLS,
     srcParagraph, boundaryKey, canTake, segOf, marksFor,
     FileCache, expand, reachEdges, buildResultBlocks, shapeBlock,
     fetchHits, execMode, fileMeta, searchResultBlocks, expandBlock,
-    publicBlock,
+    publicBlock, sectionIndex, sectionAt, sectionEnd, sectionHits, rankKey,
   };
 })(window.HistoryAIEngine = window.HistoryAIEngine || {});

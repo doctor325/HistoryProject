@@ -1,0 +1,769 @@
+{
+ "version": 2,
+ "corpus": "7 部语料（先秦：尚書/春秋左傳/史記/國語/戰國策；秦汉：前漢書/後漢書），421178 条记录",
+ "era": "qin_han",
+ "note": [
+  "召回测试集，按时代分文件（第六点二阶段 §21）。本文件 = 秦汉（前漢書/後漢書，kanripo WYG 底本）。",
+  "id 一律带时代前缀 qh-（preqin.json 沿用第六点一阶段的历史 id 不改名，以免历史报告里的 id 对不上）。",
+  "baseline_hits / baseline_blocks 是 2026-09-12 在 7 部语料上实测的 hit_total / total，只用于报告漂移，不作为失败判据（语料扩充后必然变化）。",
+  "recall: \"section\" 的条目判的是**篇名命中**（match_type 为 section 或 both），不看 hit_total——篇名命中的 hit_total 本来就是 0。",
+  "可选字段：page / page_size / mode / book / edition / text_mode 覆盖默认检索参数；check_pagination 跑末页可达性。",
+  "**用例分三类，报告里必须分清**：正例（must_hit=true，语料里有，引擎必须召回）；负例（must_hit=false + expect_class，语料里确实没有，空得归因正确才算过）；对照（同一现象两种写法各一条，如 武帝 877 vs 漢武帝 8、鉅鹿 147 vs 巨鹿 0）。",
+  "负例不是「随便找个搜不到的词」：每条都写明它空在哪一环（异体字/别名/现代合成词），并指向对应的正例。",
+  "本文件的新增用例全部是先实测、后写数：数字来自 2026-09-12 的库，不是估的。"
+ ],
+ "cases": [
+  {
+   "id": "qh-person-01",
+   "group": "person",
+   "query": "李斯",
+   "must_hit": true,
+   "baseline_hits": 95,
+   "baseline_blocks": 74,
+   "top_needle": "李斯",
+   "note": "史記53/前漢書21/後漢書12/戰國策9；简繁同形"
+  },
+  {
+   "id": "qh-person-02",
+   "group": "person",
+   "query": "赵高",
+   "must_hit": true,
+   "baseline_hits": 89,
+   "baseline_blocks": 61,
+   "top_needle": "趙高",
+   "note": "史記68/前漢書13/後漢書8；简体输入必须转成趙高"
+  },
+  {
+   "id": "qh-person-03",
+   "group": "person",
+   "query": "项羽",
+   "must_hit": true,
+   "baseline_hits": 456,
+   "baseline_blocks": 292,
+   "top_needle": "項羽",
+   "note": "史記274/前漢書144/後漢書33/戰國策5。漢書把楚汉相争整段重写，所以两书命中都很大"
+  },
+  {
+   "id": "qh-person-04",
+   "group": "person",
+   "query": "韩信",
+   "must_hit": true,
+   "baseline_hits": 272,
+   "baseline_blocks": 214,
+   "top_needle": "韓信",
+   "note": "史記129/前漢書113/後漢書27/戰國策3；含同名的韓王信，词面检索分不出两人"
+  },
+  {
+   "id": "qh-person-05",
+   "group": "person",
+   "query": "萧何",
+   "must_hit": true,
+   "baseline_hits": 152,
+   "baseline_blocks": 127,
+   "top_needle": "蕭何",
+   "note": "前漢書75/史記41/後漢書35/戰國策1；新语料（前漢書）里比史記还多"
+  },
+  {
+   "id": "qh-person-06",
+   "group": "person",
+   "query": "张良",
+   "must_hit": true,
+   "baseline_hits": 111,
+   "baseline_blocks": 92,
+   "top_needle": "張良",
+   "note": "前漢書51/史記44/後漢書15/戰國策1"
+  },
+  {
+   "id": "qh-person-07",
+   "group": "person",
+   "query": "司马迁",
+   "must_hit": true,
+   "baseline_hits": 54,
+   "baseline_blocks": 55,
+   "top_needle": "司馬遷",
+   "note": "前漢書28/後漢書23/史記2/戰國策1；块数 55 > 命中段 54，多的一块是前漢書「司馬遷傳」的篇名命中（match_type=section）"
+  },
+  {
+   "id": "qh-person-08",
+   "group": "person",
+   "query": "班超",
+   "must_hit": true,
+   "baseline_hits": 27,
+   "baseline_blocks": 22,
+   "top_needle": "班超",
+   "note": "後漢書26/前漢書1；班超在西域，与 qh-multi-04「匈奴 西域」同域"
+  },
+  {
+   "id": "qh-person-09",
+   "group": "person",
+   "query": "卫青",
+   "must_hit": true,
+   "baseline_hits": 51,
+   "baseline_blocks": 46,
+   "top_needle": "衛青",
+   "note": "前漢書25/史記21/後漢書5；简繁对见 qh-script-01/02"
+  },
+  {
+   "id": "qh-person-10",
+   "group": "person",
+   "query": "霍去病",
+   "must_hit": true,
+   "baseline_hits": 35,
+   "baseline_blocks": 35,
+   "top_needle": "霍去病",
+   "note": "前漢書21/後漢書8/史記6；三字走 fts"
+  },
+  {
+   "id": "qh-person-11",
+   "group": "person",
+   "query": "张骞",
+   "must_hit": true,
+   "baseline_hits": 48,
+   "baseline_blocks": 45,
+   "top_needle": "張騫",
+   "note": "前漢書27/史記12/後漢書9；简繁对见 qh-script-03/04"
+  },
+  {
+   "id": "qh-person-12",
+   "group": "person",
+   "query": "苏武",
+   "must_hit": true,
+   "baseline_hits": 36,
+   "baseline_blocks": 32,
+   "top_needle": "蘇武",
+   "note": "前漢書22/後漢書12/史記2；简繁对见 qh-script-05/06"
+  },
+  {
+   "id": "qh-person-13",
+   "group": "person",
+   "query": "王莽",
+   "must_hit": true,
+   "baseline_hits": 571,
+   "baseline_blocks": 543,
+   "top_needle": "王莽",
+   "note": "後漢書351/前漢書215/戰國策3/國語1/史記1；简繁同形。戰國策/國語的命中是同名的战国人物，词面检索分不出"
+  },
+  {
+   "id": "qh-person-14",
+   "group": "person",
+   "query": "刘秀",
+   "must_hit": true,
+   "baseline_hits": 9,
+   "baseline_blocks": 8,
+   "top_needle": "劉秀",
+   "note": "後漢書8/前漢書1。**别名缺口（登记）**：語料通篇作 光武 705 段（qh-alias-08），直呼「劉秀」只有 9 段。检索不做别名映射（§29 禁语义扩展），命中少是用词所致，不是漏检"
+  },
+  {
+   "id": "qh-person-15",
+   "group": "person",
+   "query": "吕后",
+   "must_hit": true,
+   "baseline_hits": 179,
+   "baseline_blocks": 123,
+   "top_needle": "呂后",
+   "note": "史記105/前漢書70/後漢書4；简体输入转 呂后。别名 呂太后 另见 qh-alias-10"
+  },
+  {
+   "id": "qh-person-16",
+   "group": "person",
+   "query": "董卓",
+   "must_hit": true,
+   "baseline_hits": 157,
+   "baseline_blocks": 132,
+   "top_needle": "董卓",
+   "note": "後漢書156/前漢書1。**原 preqin neg-01**：加 後漢書 之前它是「语料没有」的负例（三国人物，不在先秦 5 部里），扩容后命中 157 段，故迁到本文件当正例——负例的成立与否随语料而变，加书时必须同时改用例"
+  },
+  {
+   "id": "qh-alias-01",
+   "group": "alias",
+   "query": "高祖",
+   "must_hit": true,
+   "baseline_hits": 585,
+   "baseline_blocks": 399,
+   "top_needle": "高祖",
+   "note": "史記299/前漢書198/後漢書84/左傳2/尚書2。漢高祖在本库的正身；（现代写法「刘邦」0 段，见 qh-neg-02）"
+  },
+  {
+   "id": "qh-alias-02",
+   "group": "alias",
+   "query": "沛公",
+   "must_hit": true,
+   "baseline_hits": 431,
+   "baseline_blocks": 218,
+   "top_needle": "沛公",
+   "note": "史記243/前漢書180/後漢書8；高祖称帝前的称号，与 qh-alias-01 指同一人"
+  },
+  {
+   "id": "qh-alias-03",
+   "group": "alias",
+   "query": "汉武帝",
+   "must_hit": true,
+   "baseline_hits": 8,
+   "baseline_blocks": 8,
+   "top_needle": "漢武帝",
+   "note": "後漢書6/前漢書2。**现代通称**：語料绝大多数只作 武帝 877 段（qh-alias-04），「漢武帝」三字连写仅 8 段，且都在后人追述里"
+  },
+  {
+   "id": "qh-alias-04",
+   "group": "alias",
+   "query": "武帝",
+   "must_hit": true,
+   "baseline_hits": 877,
+   "baseline_blocks": 808,
+   "top_needle": "武帝",
+   "note": "前漢書474/後漢書323/史記77/戰國策3。与 qh-alias-03 同一人：语料写法 877 vs 现代写法 8，差 110 倍——用词以语料为准的量化说明"
+  },
+  {
+   "id": "qh-alias-05",
+   "group": "alias",
+   "query": "汉文帝",
+   "must_hit": true,
+   "baseline_hits": 3,
+   "baseline_blocks": 3,
+   "top_needle": "漢文帝",
+   "note": "後漢書2/前漢書1。語料作 文帝 515（qh-alias-06），与 qh-alias-03 同一现象"
+  },
+  {
+   "id": "qh-alias-06",
+   "group": "alias",
+   "query": "文帝",
+   "must_hit": true,
+   "baseline_hits": 515,
+   "baseline_blocks": 426,
+   "top_needle": "文帝",
+   "note": "前漢書227/史記149/後漢書137/戰國策2。语料里「文帝」也指前漢文帝以外的谥号，词面检索不区分"
+  },
+  {
+   "id": "qh-alias-07",
+   "group": "alias",
+   "query": "景帝",
+   "must_hit": true,
+   "baseline_hits": 401,
+   "baseline_blocks": 310,
+   "top_needle": "景帝",
+   "note": "前漢書192/史記145/後漢書63/戰國策1；现代写法「汉景帝」仅 1 段"
+  },
+  {
+   "id": "qh-alias-08",
+   "group": "alias",
+   "query": "光武",
+   "must_hit": true,
+   "baseline_hits": 705,
+   "baseline_blocks": 590,
+   "top_needle": "光武",
+   "note": "後漢書683/前漢書20/戰國策2；刘秀在本库的正身（现代写法「刘秀」9 段，qh-person-14）"
+  },
+  {
+   "id": "qh-alias-09",
+   "group": "alias",
+   "query": "元后",
+   "must_hit": true,
+   "baseline_hits": 44,
+   "baseline_blocks": 39,
+   "top_needle": "元后",
+   "note": "前漢書29/後漢書9/尚書5/國語1。**异义混入（登记）**：尚書 那 5 段是「元后作民父母」（天子之义），与王政君无关；王政君本人在库中无「王政君」三字（qh-neg-03）。单看命中数会把两个义项加在一起，这是词面检索的固有限制"
+  },
+  {
+   "id": "qh-alias-10",
+   "group": "alias",
+   "query": "吕太后",
+   "must_hit": true,
+   "baseline_hits": 61,
+   "baseline_blocks": 51,
+   "top_needle": "呂太后",
+   "note": "史記33/前漢書26/後漢書2；吕后的另一种称谓，与 qh-person-15 指同一人"
+  },
+  {
+   "id": "qh-place-01",
+   "group": "place",
+   "query": "马邑",
+   "must_hit": true,
+   "baseline_hits": 87,
+   "baseline_blocks": 63,
+   "top_needle": "馬邑",
+   "note": "前漢書43/史記39/後漢書5；漢武帝馬邑之謀"
+  },
+  {
+   "id": "qh-place-02",
+   "group": "place",
+   "query": "河西",
+   "must_hit": true,
+   "baseline_hits": 127,
+   "baseline_blocks": 111,
+   "top_needle": "河西",
+   "note": "後漢書69/史記26/前漢書19/戰國策11/左傳2。**同名异地（登记）**：戰國策 那 11 段指魏国河西（今陕西东部），漢書 的指河西走廊；检索只认字面，首位命中落在戰國策"
+  },
+  {
+   "id": "qh-place-03",
+   "group": "place",
+   "query": "西域",
+   "must_hit": true,
+   "baseline_hits": 310,
+   "baseline_blocks": 249,
+   "top_needle": "西域",
+   "note": "後漢書158/前漢書148/史記4；新语料带来的主要新增主题之一"
+  },
+  {
+   "id": "qh-war-01",
+   "group": "war",
+   "query": "白登",
+   "must_hit": true,
+   "baseline_hits": 12,
+   "baseline_blocks": 12,
+   "top_needle": "白登",
+   "note": "後漢書5/前漢書4/史記3；白登之围"
+  },
+  {
+   "id": "qh-event-01",
+   "group": "event",
+   "query": "党锢",
+   "must_hit": true,
+   "baseline_hits": 21,
+   "baseline_blocks": 21,
+   "top_needle": "黨錮",
+   "note": "後漢書21（全部）。简繁对见 qh-script-11/12"
+  },
+  {
+   "id": "qh-event-02",
+   "group": "event",
+   "query": "黄巾",
+   "must_hit": true,
+   "baseline_hits": 1,
+   "baseline_blocks": 1,
+   "top_needle": "黃巾",
+   "note": "後漢書1。**命中量最小**：語料里「黃巾」只有 1 段，现代通称「黄巾之乱」0 段（qh-neg-06）——是语料本身记录少，不是检索漏"
+  },
+  {
+   "id": "qh-event-03",
+   "group": "event",
+   "query": "推恩",
+   "must_hit": true,
+   "baseline_hits": 10,
+   "baseline_blocks": 10,
+   "top_needle": "推恩",
+   "note": "史記5/前漢書4/後漢書1；「推恩令」三字 0 段（qh-neg-07）"
+  },
+  {
+   "id": "qh-office-01",
+   "group": "office",
+   "query": "骠骑将军",
+   "must_hit": true,
+   "baseline_hits": 90,
+   "baseline_blocks": 62,
+   "top_needle": "驃騎將軍",
+   "note": "史記55/後漢書24/前漢書11；霍去病的官职"
+  },
+  {
+   "id": "qh-office-02",
+   "group": "office",
+   "query": "西域都护",
+   "must_hit": true,
+   "baseline_hits": 7,
+   "baseline_blocks": 7,
+   "top_needle": "西域都護",
+   "note": "後漢書4/前漢書3；小命中边界值"
+  },
+  {
+   "id": "qh-office-03",
+   "group": "office",
+   "query": "侍中",
+   "must_hit": true,
+   "baseline_hits": 592,
+   "baseline_blocks": 535,
+   "top_needle": "侍中",
+   "note": "後漢書293/前漢書222/史記40/國語36/戰國策1；跨 5 部书的高频官职"
+  },
+  {
+   "id": "qh-section-01",
+   "group": "section",
+   "query": "光武帝纪第一上",
+   "must_hit": true,
+   "baseline_hits": 0,
+   "baseline_blocks": 1,
+   "recall": "section",
+   "note": "後漢書篇名，正文 0 段。简体输入经转换命中 WYG 底本的篇题行"
+  },
+  {
+   "id": "qh-section-02",
+   "group": "section",
+   "query": "艺文志第十",
+   "must_hit": true,
+   "baseline_hits": 0,
+   "baseline_blocks": 1,
+   "recall": "section",
+   "note": "前漢書篇名，正文 0 段"
+  },
+  {
+   "id": "qh-section-03",
+   "group": "section",
+   "query": "地理志第八上",
+   "must_hit": true,
+   "baseline_hits": 0,
+   "baseline_blocks": 1,
+   "recall": "section",
+   "note": "前漢書篇名；WYG 底本作「地理志第八上」，卷次带「上」"
+  },
+  {
+   "id": "qh-section-04",
+   "group": "section",
+   "query": "班梁列传第三十七",
+   "must_hit": true,
+   "baseline_hits": 0,
+   "baseline_blocks": 1,
+   "recall": "section",
+   "note": "後漢書篇名（班超、梁慬合传），正文 0 段"
+  },
+  {
+   "id": "qh-section-05",
+   "group": "section",
+   "query": "高帝纪第一上",
+   "must_hit": true,
+   "baseline_hits": 1,
+   "baseline_blocks": 2,
+   "recall": "section",
+   "note": "正文与篇名**同时**命中（正文 1 段 + 篇名 1 条）：正文块在前、篇名块在后，§7 不产生重复 Passage"
+  },
+  {
+   "id": "qh-section-06",
+   "group": "section",
+   "query": "西周",
+   "must_hit": true,
+   "baseline_hits": 73,
+   "baseline_blocks": 54,
+   "recall": "section",
+   "book": "戰國策",
+   "note": "戰國策 国别篇名。首位（第 2 块）match_type=both：锚点落在正文块里，该块同时含篇名命中。本阶段第 2 步修的戰國策 section 覆盖"
+  },
+  {
+   "id": "qh-section-07",
+   "group": "section",
+   "query": "东周",
+   "must_hit": true,
+   "baseline_hits": 68,
+   "baseline_blocks": 51,
+   "recall": "section",
+   "book": "戰國策",
+   "page_size": 100,
+   "note": "戰國策 12 国别之一。篇名块排在**全部正文块之后**（第 51 块），故 page_size 放到 100 才看得见——篇名不是被挤掉，是排序在后"
+  },
+  {
+   "id": "qh-multi-01",
+   "group": "multi",
+   "query": "卫青 霍去病",
+   "must_hit": true,
+   "baseline_hits": 4,
+   "baseline_blocks": 4,
+   "note": "共段 4（单独各 51 / 35）。三字词走 fts，共段很少符合史实（两人极少同段并称）"
+  },
+  {
+   "id": "qh-multi-02",
+   "group": "multi",
+   "query": "王莽 光武",
+   "must_hit": true,
+   "baseline_hits": 9,
+   "baseline_blocks": 9,
+   "note": "共段 9，全在後漢書；王莽末年至光武建国的交接段"
+  },
+  {
+   "id": "qh-multi-03",
+   "group": "multi",
+   "query": "苏武 匈奴",
+   "must_hit": true,
+   "baseline_hits": 8,
+   "baseline_blocks": 8,
+   "note": "共段 8（單 苏武 36 / 匈奴 2007）"
+  },
+  {
+   "id": "qh-multi-04",
+   "group": "multi",
+   "query": "匈奴 西域",
+   "must_hit": true,
+   "baseline_hits": 44,
+   "baseline_blocks": 41,
+   "note": "共段 44；AND 语义下两词必须同段，块数略少于命中数说明部分命中落在同一段"
+  },
+  {
+   "id": "qh-multi-05",
+   "group": "multi",
+   "query": "萧何 韩信",
+   "must_hit": true,
+   "baseline_hits": 6,
+   "baseline_blocks": 6,
+   "note": "共段 6（單 152 / 272）；楚汉功臣并列处"
+  },
+  {
+   "id": "qh-multi-06",
+   "group": "multi",
+   "query": "高祖 项羽",
+   "must_hit": true,
+   "baseline_hits": 8,
+   "baseline_blocks": 8,
+   "note": "**用語料写法**共段 8；换现代写法「刘邦 项羽」是 0（qh-neg-10）——多词 AND 对用词的敏感度是单关键词的平方"
+  },
+  {
+   "id": "qh-script-01",
+   "group": "script",
+   "query": "卫青",
+   "must_hit": true,
+   "baseline_hits": 51,
+   "expect_same_as": "qh-script-02",
+   "note": "简繁对：与 qh-script-02 必须同 hit_total",
+   "baseline_blocks": 46
+  },
+  {
+   "id": "qh-script-02",
+   "group": "script",
+   "query": "衛青",
+   "must_hit": true,
+   "baseline_hits": 51,
+   "note": "繁体直输",
+   "baseline_blocks": 46
+  },
+  {
+   "id": "qh-script-03",
+   "group": "script",
+   "query": "张骞",
+   "must_hit": true,
+   "baseline_hits": 48,
+   "expect_same_as": "qh-script-04",
+   "note": "简繁对",
+   "baseline_blocks": 45
+  },
+  {
+   "id": "qh-script-04",
+   "group": "script",
+   "query": "張騫",
+   "must_hit": true,
+   "baseline_hits": 48,
+   "note": "繁体直输",
+   "baseline_blocks": 45
+  },
+  {
+   "id": "qh-script-05",
+   "group": "script",
+   "query": "苏武",
+   "must_hit": true,
+   "baseline_hits": 36,
+   "expect_same_as": "qh-script-06",
+   "note": "简繁对",
+   "baseline_blocks": 32
+  },
+  {
+   "id": "qh-script-06",
+   "group": "script",
+   "query": "蘇武",
+   "must_hit": true,
+   "baseline_hits": 36,
+   "note": "繁体直输",
+   "baseline_blocks": 32
+  },
+  {
+   "id": "qh-script-07",
+   "group": "script",
+   "query": "吕后",
+   "must_hit": true,
+   "baseline_hits": 179,
+   "expect_same_as": "qh-script-08",
+   "note": "简繁对",
+   "baseline_blocks": 123
+  },
+  {
+   "id": "qh-script-08",
+   "group": "script",
+   "query": "呂后",
+   "must_hit": true,
+   "baseline_hits": 179,
+   "note": "繁体直输",
+   "baseline_blocks": 123
+  },
+  {
+   "id": "qh-script-09",
+   "group": "script",
+   "query": "刘秀",
+   "must_hit": true,
+   "baseline_hits": 9,
+   "expect_same_as": "qh-script-10",
+   "note": "简繁对（这条同时是别名缺口的正例，见 qh-person-14）",
+   "baseline_blocks": 8
+  },
+  {
+   "id": "qh-script-10",
+   "group": "script",
+   "query": "劉秀",
+   "must_hit": true,
+   "baseline_hits": 9,
+   "note": "繁体直输",
+   "baseline_blocks": 8
+  },
+  {
+   "id": "qh-script-11",
+   "group": "script",
+   "query": "党锢",
+   "must_hit": true,
+   "baseline_hits": 21,
+   "expect_same_as": "qh-script-12",
+   "note": "简繁对；戰國策/漢書 里无此词，命中全在後漢書",
+   "baseline_blocks": 21
+  },
+  {
+   "id": "qh-script-12",
+   "group": "script",
+   "query": "黨錮",
+   "must_hit": true,
+   "baseline_hits": 21,
+   "note": "繁体直输",
+   "baseline_blocks": 21
+  },
+  {
+   "id": "qh-single-01",
+   "group": "single",
+   "query": "羌",
+   "must_hit": true,
+   "baseline_hits": 944,
+   "baseline_blocks": 680,
+   "note": "单字走 like；後漢書695/前漢書215/史記32。西羌传是後漢書的大篇"
+  },
+  {
+   "id": "qh-single-02",
+   "group": "single",
+   "query": "鲜卑",
+   "must_hit": true,
+   "baseline_hits": 213,
+   "baseline_blocks": 151,
+   "note": "後漢書205/前漢書7/戰國策1；两字走 bigram"
+  },
+  {
+   "id": "qh-pagination-01",
+   "group": "pagination",
+   "query": "汉",
+   "must_hit": true,
+   "baseline_hits": 8610,
+   "baseline_blocks": 5921,
+   "check_pagination": true,
+   "note": "全库最高频单字（走 like）：前漢書3647/後漢書3141/史記1622/戰國策153/左傳26/國語18/尚書3。末页必须可达"
+  },
+  {
+   "id": "qh-pagination-02",
+   "group": "pagination",
+   "query": "单于",
+   "must_hit": true,
+   "baseline_hits": 1298,
+   "baseline_blocks": 803,
+   "check_pagination": true,
+   "note": "前漢書698/後漢書367/史記232/戰國策1；新语料带来的高频主题词"
+  },
+  {
+   "id": "qh-pagination-03",
+   "group": "pagination",
+   "query": "大将军",
+   "must_hit": true,
+   "baseline_hits": 887,
+   "baseline_blocks": 708,
+   "check_pagination": true,
+   "note": "後漢書383/前漢書313/史記191；官职词命中密、块数略少于命中数"
+  },
+  {
+   "id": "qh-passage-01",
+   "group": "passage",
+   "query": "王莽",
+   "must_hit": true,
+   "baseline_hits": 571,
+   "baseline_blocks": 540,
+   "top_needle": "王莽",
+   "mode": "long",
+   "note": "长模式（max_passages/max_chars 都放宽）：块最长，文本截断在这里最容易显形（逐字对拍对所有 case 都跑）"
+  },
+  {
+   "id": "qh-passage-02",
+   "group": "passage",
+   "query": "匈奴",
+   "must_hit": true,
+   "baseline_hits": 2007,
+   "baseline_blocks": 1318,
+   "top_needle": "匈奴",
+   "mode": "long",
+   "page_size": 50,
+   "note": "同上，本库命中第二高的双字词（單于 1298 / 匈奴 2007），换更大的页"
+  },
+  {
+   "id": "qh-neg-01",
+   "group": "negative",
+   "query": "巨鹿",
+   "must_hit": false,
+   "expect_class": "Coverage",
+   "note": "正字/异体字不通用：語料作 鉅鹿 147 段（正例见 preqin war-04），「巨鹿」0 段。繁简转换不管异体字"
+  },
+  {
+   "id": "qh-neg-02",
+   "group": "negative",
+   "query": "刘邦",
+   "must_hit": false,
+   "expect_class": "Coverage",
+   "note": "語料作 高祖 585 / 沛公 431（正例 qh-alias-01/02），「劉邦」0 段。检索不做别名映射"
+  },
+  {
+   "id": "qh-neg-03",
+   "group": "negative",
+   "query": "王政君",
+   "must_hit": false,
+   "expect_class": "Coverage",
+   "note": "語料作 元后 44（qh-alias-09），「王政君」0 段；且 元后 还混有尚書的天子义"
+  },
+  {
+   "id": "qh-neg-04",
+   "group": "negative",
+   "query": "文景之治",
+   "must_hit": false,
+   "expect_class": "Coverage",
+   "note": "现代合成词，古籍不作四字连写（文帝 515 / 景帝 401 都有）"
+  },
+  {
+   "id": "qh-neg-05",
+   "group": "negative",
+   "query": "党锢之祸",
+   "must_hit": false,
+   "expect_class": "Coverage",
+   "note": "现代合成词；語料作 黨錮 21（qh-event-01）"
+  },
+  {
+   "id": "qh-neg-06",
+   "group": "negative",
+   "query": "黄巾之乱",
+   "must_hit": false,
+   "expect_class": "Coverage",
+   "note": "語料 黃巾 仅 1 段（qh-event-02），无「之乱」连写"
+  },
+  {
+   "id": "qh-neg-07",
+   "group": "negative",
+   "query": "推恩令",
+   "must_hit": false,
+   "expect_class": "Coverage",
+   "note": "語料作 推恩 10（qh-event-03），无「令」字连写"
+  },
+  {
+   "id": "qh-neg-08",
+   "group": "negative",
+   "query": "丝绸之路",
+   "must_hit": false,
+   "expect_class": "Coverage",
+   "note": "现代术语，古籍不作此名（語料有 西域 310 段）"
+  },
+  {
+   "id": "qh-neg-09",
+   "group": "negative",
+   "query": "河西之战",
+   "must_hit": false,
+   "expect_class": "Coverage",
+   "note": "现代合成词；地名 河西 有 127 段（qh-place-02）"
+  },
+  {
+   "id": "qh-neg-10",
+   "group": "negative",
+   "query": "刘邦 项羽",
+   "must_hit": false,
+   "expect_class": "Coverage",
+   "note": "两个检索词都按现代写法：劉邦 0 段、項羽 456 段，AND 下必然为 0。改用語料写法（高祖 项羽）共段 8（qh-multi-06）"
+  }
+ ]
+}

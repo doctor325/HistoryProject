@@ -7,7 +7,8 @@
 import fs from "node:fs";
 import crypto from "node:crypto";
 import path from "node:path";
-import { loadEngine, loadCorpus, loadStaticData, utf16beBytes } from "./loader.mjs";
+import { loadEngine, loadCorpus, loadStaticData, loadSiteBoot, utf16beBytes }
+  from "./loader.mjs";
 
 const argv = process.argv.slice(2);
 const cmd = argv[0];
@@ -311,6 +312,13 @@ const CHECKS = {
         return { error: String((e && e.message) || e) };
       }
     })).then((results) => ({ check: "static-api", results }));
+  },
+
+  /** boot.js 冒烟：横幅与页脚在两种模式下各写了什么。
+   *
+   *  判据在 Python 侧 —— 这里只如实回传它写进 DOM 的字符串。 */
+  "boot"() {
+    return loadSiteBoot(opt.dir).then((r) => Object.assign({ check: "boot" }, r));
   },
 
   /** zh.js 与生僻/星形字符：逐项明细（样本小，直接对拍不必摘要）。 */

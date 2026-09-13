@@ -23,11 +23,23 @@ from search import zh                                           # noqa: E402
 
 HAS_DB = config.DB_PATH.is_file()
 
-# (查询词, 原始命中数, {模式: 片段数})——已人工核对过的基数
+# (查询词, 原始命中数, {模式: 片段数})——已人工核对过的基数。
+# 第六点一阶段重测：片段数比之前多得多（齐桓公 standard 23 → 74）。不是退化，
+# 是以前算错了——取数窗口只有 600 行，一个文件里超出窗口的命中全部没进组装
+# （实测「將軍」1142 处命中只组装出 139 处），片段数因此被系统性低估。
+#
+# 第六点二阶段测了两轮，两轮**改的东西不一样**，不能混着看：
+#   ① 先修跨篇界（只动块边界，不动 Passage）：命中数一个没变，片段数两个方向
+#      都有——黄帝 short 80→115（篇界把并过头的大块切开），齐桓公 standard
+#      74→73（合并接缝不再吞邻篇的行，块短一行就少并进一块）。
+#   ② 再加 前漢書/後漢書（语料本身变大）：命中数**必然**涨（齐桓公 96→151），
+#      片段数跟着涨。§26 那句「Passage 本身一个字没动」仍然成立——变的是库里
+#      有几部书，不是哪一条 Passage 被改写；这也是下面 hit_total 必须重测的原因：
+#      它是语料的函数，不是引擎的指标。
 BASELINE = {
-    "齐桓公": (96, {"short": 26, "standard": 23, "long": 18}),
-    "管仲": (102, {"short": 43, "standard": 31, "long": 26}),
-    "黄帝": (163, {"short": 29, "standard": 23, "long": 18}),
+    "齐桓公": (151, {"short": 138, "standard": 126, "long": 115}),
+    "管仲": (189, {"short": 158, "standard": 141, "long": 133}),
+    "黄帝": (170, {"short": 122, "standard": 92, "long": 68}),
 }
 MODES = ("short", "standard", "long")
 
@@ -211,6 +223,186 @@ class TestResultBlockRealData(unittest.TestCase):
                 if checked >= 5:
                     break
         self.assertGreater(checked, 0, "真实语料里应当存在可展开的片段")
+
+
+@unittest.skipUnless(HAS_DB, "需先运行 python -m scripts.pipeline.run_all")
+class TestPhase6_1RealData(unittest.TestCase):
+    """第六点一阶段在真实语料上的回归：篇名命中、match_type、has_more、total 真实性。"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.conn = ro_conn()
+        cls.cur = cls.conn.cursor()
+        cls.idx = RB._section_index(cls.cur)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.conn.close()
+
+    def search(self, q, mode="standard", page=1, page_size=100):
+        return RB.search_result_blocks(self.cur, q, None, None, page, page_size, mode)
+
+    def all_blocks(self, q, page_size=100, max_pages=None):
+        """翻完所有页（或前 max_pages 页）。每页都要重跑一遍全量组装——「之」一页
+        2.2s，翻满 100 页要四分钟，所以只对中等频率的词要求翻到底。"""
+        out, page = [], 1
+        while True:
+            d = self.search(q, page=page, page_size=page_size)
+            out += d["results"]
+            if not d["has_more"] or (max_pages and page >= max_pages):
+                return out, d
+            page += 1
+
+    def labels_of(self, b):
+        return {RB._section_at(self.idx, *self.cur.execute(
+            "SELECT file_id, row_no FROM passages WHERE passage_id=?", (pid,)
+        ).fetchone()) for pid in b["passage_ids"]}
+
+    # ---- 篇名命中 ----
+    def test_section_query_returns_that_section(self):
+        for label in ("秦始皇本紀", "五帝本紀", "秦本紀"):
+            with self.subTest(label=label):
+                d = self.search(label)
+                hit = [b for b in d["results"] if b["section"] == label]
+                self.assertTrue(hit, f"搜「{label}」应当返回这一篇")
+                self.assertIn(hit[0]["match_type"], ("section", "both"))
+
+    def test_section_block_anchors_at_first_body_row(self):
+        """锚点是区间内首条正文——标题行不进片段正文，从它起读才是这一篇的开头。"""
+        d = self.search("秦始皇本紀")
+        b = [x for x in d["results"] if x["section"] == "秦始皇本紀"][0]
+        want = self.cur.execute(
+            "SELECT MIN(row_no) AS r FROM passages WHERE file_id=? AND kind='passage' "
+            "AND row_no >= (SELECT first_row FROM sections WHERE file_id=? AND label=?)",
+            (b["file_id"], b["file_id"], "秦始皇本紀")).fetchone()["r"]
+        self.assertEqual(b["row_first"], want)
+
+    def test_section_and_text_hits_are_ordered(self):
+        """§6：正文命中排在篇名命中之前；match_type 只有三种取值。"""
+        for q in ("五帝本紀", "秦本紀", "之"):
+            with self.subTest(q=q):
+                rank = {"text": 0, "both": 1, "section": 2}
+                kinds = [b["match_type"] for b in self.search(q)["results"]]
+                self.assertTrue(set(kinds) <= set(rank), f"未知 match_type: {kinds}")
+                self.assertEqual(kinds, sorted(kinds, key=lambda k: rank[k]))
+
+    def test_no_duplicate_passage_across_blocks(self):
+        """§7：一篇正文不得在结果里出现两次（正文块与篇名块撞车时要合并）。"""
+        for q, mp in (("秦本紀", None), ("五帝本紀", None), ("之", 3)):
+            with self.subTest(q=q):
+                blocks, _ = self.all_blocks(q, page_size=100, max_pages=mp)
+                pids = [p for b in blocks for p in b["passage_ids"]]
+                self.assertEqual(len(pids), len(set(pids)), "跨块出现重复 passage")
+
+    # ---- 回填 ----
+    def test_section_is_backfilled_on_shiji(self):
+        """史記正文行的 passages.section 是 NULL；块的 section 由区间推出来。
+
+        没有这一项，史記的结果读不出「这是哪一篇」，§24 的篇章溯源就落空。
+        """
+        blocks = self.search("之")["results"]
+        filled = [b for b in blocks if b["section"]]
+        self.assertGreater(len(filled), 50, "史記/國語的多数块应当带得出篇名")
+
+    # ---- total / has_more ----
+    def test_high_frequency_total_is_truthful(self):
+        """高频词的 total 必须是真的：翻完所有页恰好拿到 total 个，不多不少不重复。
+
+        `total`/`hit_total` 的**精确值不写死**：它们随语料长大（第六点二阶段加
+        前漢書/後漢書后 大夫 1443→3531 命中、1116→2994 块），写死就是在测试里
+        埋一颗「下次加书必红」的雷。这里断言的是两个只随**缩水**才失效的量：
+        高频词至少要有上千命中（语料还在），以及 块数 ≤ 命中数（合并只会减不会增）。
+        """
+        blocks, last = self.all_blocks("大夫", page_size=100)
+        self.assertEqual(len(blocks), last["total"])
+        self.assertFalse(last["truncated"], "解除 600 上限后不该再报截断")
+        self.assertGreater(last["hit_total"], 1000, "大夫 是高频词，命中数不该是个小数字")
+        self.assertLessEqual(last["total"], last["hit_total"],
+                             "块是把命中并起来的，块数不可能多于命中数")
+        self.assertLess(last["total"], last["hit_total"],
+                        "大夫 有一行多处命中/跨行合并，块数应当**严格小于**命中数")
+
+    def test_has_more_matches_total(self):
+        for q, size in (("大夫", 100), ("大夫", 30), ("之", 100)):
+            page = 1
+            while True:
+                d = self.search(q, page=page, page_size=size)
+                with self.subTest(q=q, size=size, page=page):
+                    self.assertEqual(d["has_more"], page * size < d["total"],
+                                     "has_more 必须与 total 一致，否则前端会漏翻或多翻")
+                if not d["has_more"]:
+                    break
+                page += 1
+                if q == "之":            # 9906 块，翻满三页足够证明规律
+                    break
+
+    def test_total_can_exceed_hit_total_for_section_hits(self):
+        """篇名命中没有对应正文行，所以 total 可以大于 hit_total——不是算错。
+
+        两种情形都要在：
+
+        ① **纯篇名命中**：全库没有一行正文写到这个篇名，于是 total=1、hit_total=0。
+           换用 漢書 的篇名，是因为扩容后 史記 的篇名被漢書正文引到了——
+           「秦始皇本紀」已有 2 处正文命中（漢書 里提史記 篇名），不再是纯篇名命中。
+        ② **篇名 + 正文**：「秦始皇本紀」现在 total=3 > hit_total=2，差的那 1 就是
+           篇名块本身。这两条合起来才证明 total 与 hit_total 是两套口径，不是同一个数。
+        """
+        d = self.search("五行志第七上")
+        self.assertEqual(d["hit_total"], 0)
+        self.assertEqual(d["total"], 1)
+        self.assertEqual(d["results"][0]["match_type"], "section")
+
+        d = self.search("秦始皇本紀")
+        self.assertGreater(d["hit_total"], 0)
+        self.assertEqual(d["total"], d["hit_total"] + 1,
+                         "总数应比正文命中多出篇名块本身")
+        self.assertIn("section", {b["match_type"] for b in d["results"]})
+
+    # ---- 第六点二阶段：跨篇界块归零（正向断言）----
+    def assemble_all(self, q, mode="standard"):
+        """一次性组装**全部**块，不走分页。
+
+        与 search_result_blocks 内部同一条路（同样截 MAX_HITS_PER_QUERY）：分页
+        会把整个查询重跑 page 次，「之」13000 个块要翻 130 页、每页 4 秒，单测跑
+        不动。这里只跑一遍组装。
+
+        为什么不用 `self.search(q)["results"]`（第一页）：这一条正是旧的
+        `test_known_limit_blocks_may_cross_section_boundary` 失灵的原因——它只
+        看首页 100 块，130 → 106 这种半吊子修复照样绿。
+        """
+        rows = RB._fetch_hits(self.cur, zh.to_traditional(q), None, None)
+        hits = [(r["passage_id"], r["file_id"], r["row_no"], r["seq"],
+                 r["score"] if r["score"] is not None else 0.0)
+                for r in rows[:RB.MAX_HITS_PER_QUERY]]
+        idx = RB._section_index(self.cur)
+        return RB.build_result_blocks(self.cur, hits, mode, idx)["blocks"]
+
+    def test_known_limit_blocks_may_cross_section_boundary(self):
+        """第六点二阶段已修复：块**不得**横跨两篇（正向断言，不是「别超 5%」）。
+
+        旧短板：`passages.section` 只在标题行有值、不向下传播，正文行的
+        section/subsection/ab 三列全是 NULL，于是 boundaryKey 对所有正文行都是
+        null、相邻两篇在判断上「同段」。修法两步（缺一不可）：
+          ① `_row_key` 用 `sections.first_row` 区间表给无键行回填篇名键；
+          ② `_fit_hi` 在**合并接缝**上补做同一套 `_can_take` 判定——撑大的那一截
+             从没经过 `_can_take`，实测这才是大头（只修 ① 只消除 18%）。
+
+        代价（§26 已确认接受）：史記/國語的块从「段」粒度变粗到「篇」粒度。
+        Passage 本身一个字没动，只是「哪几条 Passage 放进同一个展示块」变了。
+        """
+        checked = cross = 0
+        offenders = []
+        for q in ("之", "大夫", "齊桓公"):
+            for b in self.assemble_all(q):
+                checked += 1
+                labs = self.labels_of(b)
+                if len(labs) > 1:
+                    cross += 1
+                    if len(offenders) < 5:
+                        offenders.append(f"{q}@{b['file_id']}:{b['row_first']} {sorted(labs)}")
+        self.assertGreater(checked, 1000, "样本太小，这条断言证明不了什么")
+        self.assertEqual(cross, 0,
+                         f"{checked} 个块里有 {cross} 个横跨篇界：{offenders}")
 
 
 @unittest.skipUnless(HAS_DB, "需先运行 python -m scripts.pipeline.run_all")

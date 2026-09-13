@@ -41,6 +41,16 @@ def ent_names(d):
     return [e["entity"] for e in d["question"]["entities"]]
 
 
+def db_count(word):
+    """库里有几段正文含这个词（只读）。给「探针词必须真的不在库」用。"""
+    conn = sqlite3.connect(f"file:{config.DB_PATH}?mode=ro", uri=True)
+    try:
+        return conn.execute("SELECT COUNT(*) FROM passages WHERE text_orig LIKE ?",
+                            ("%" + word + "%",)).fetchone()[0]
+    finally:
+        conn.close()
+
+
 def rank_of(d, needle):
     """某句话第一次出现在第几个事件里（1 起；没出现返回 None）。
 
@@ -202,18 +212,31 @@ class Phase4RealQuestions(unittest.TestCase):
         self.assertLessEqual(r, 2, f"城濮 的原文排到了第 {r} 个事件")
 
     def test_no_three_kingdoms(self):
-        """董卓不在先秦语料里 —— 必须如实返回空，不编造。
+        """语料外的历史时期 —— 必须如实返回空，不编造。
 
-        「董卓」两个字允许出现在 question.raw / 扩展词里（那是在复述用户的问题），
-        绝不允许出现在任何**片段正文**里 —— 正文只能是 text_orig。
+        探针词原先是「董卓」，第六点二阶段加入 後漢書 后它**进了语料**（157 处
+        正文命中，还成了召回集里的正例 qh-person-16），这条用例于是测不到
+        「语料没有」这件事了。改用只属于三国的「姜維」——後漢書 写到 220 年为止，
+        三国的核心人物多在其中（曹操 151 处、劉備 43 处、孫權 14 处），
+        而姜維（蜀漢后期）一处也没有。
+
+        下面那条断言是防复发的闸门：探针词一旦进语料，这条用例会在**当次**就
+        红着告诉你换词，而不是悄悄变成一条永远为真的空断言。
         """
-        d = ask("董卓")
+        probe = "姜維"
+        n_corpus = db_count(probe)
+        self.assertEqual(n_corpus, 0,
+                         f"探针词「{probe}」已在语料中（{n_corpus} 段）：它不能再充当"
+                         f"「语料确实没有」的探针，请改这条用例的 probe")
+        d = ask(probe)
         self.assertEqual(d["counts"]["entity_pool"], 0)
         self.assertEqual(d["counts"]["fallback_pool"], 0)
         self.assertEqual(events(d), [])
         self.assertEqual(all_text(d), "")
         self.assertTrue(any("不编造" in n for n in d["notes"]),
                         f"空结果没有说明：{d['notes']}")
+        # 「姜維」三个字允许出现在 question.raw / 扩展词里（那是在复述用户的问题），
+        # 绝不允许出现在任何**片段正文**里 —— 正文只能是 text_orig。
 
     def test_ambiguous_huan_gong(self):
         """光杆「桓公」分不清齊/魯/秦/東周桓公 —— 不能当成某一位。"""

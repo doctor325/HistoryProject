@@ -36,14 +36,22 @@ MJS = HERE / "check_engine.mjs"
 CORPUS = config.HISTORY_AI_DIR / "frontend" / "data" / "corpus.json"
 DB_PATH = str(config.DB_PATH)
 
-# 多字样本一律用 BMP 内的字：整串转换在 BMP 域内与逐字等价（无代理对截断问题），
-# 因此这些样本上 Python 与 JS 必须**逐字节相同**，不需要「已知差异」豁免。
-# 星形字只出现在单字样本里（逐字行为由字符表构造保证相等）。
+# 这些样本上 Python 与 JS 必须**逐字节相同**，不需要「已知差异」豁免：
+# 逐字查表与整串转换在 dual_text 会采纳的范围（长度不变）内已由 gen_zh_table.py
+# 穷举证明等价。
+#
+# 最后几条带**星形字**（扩展 B 的 𫝊/𤣥）。历史上这里刻意只用 BMP 内的字，
+# 因为 Python 侧那时会把含星形字的串截断（尾巴少一截、单字甚至只剩孤立代理项），
+# JS 只好照抄这个 bug 才「一致」。根因修好后两边都原样放行星形字，于是把它们
+# 摆进样本——这类回归不该再靠「样本里别出现星形字」来回避。
+ASTRAL_SAMPLES = [
+    "漢書敘𫝊第七十下", "顏師古注𤣥成", "𫝊", "𤣥", "a𫝊b龍",
+]
 MULTI_SAMPLES = [
     "齐桓公", "齊桓公", "国语", "國語", "晉文公重耳", "城濮之战",
     "商鞅变法", "秦穆公和百里奚", "董卓", "管仲相齊", "齊桓公卒",
     "頭髮", "理髮", "後來", "裡面", "一隻", "樹幹", "鐘錶",
-]
+] + ASTRAL_SAMPLES
 
 
 def preflight() -> None:
@@ -687,7 +695,8 @@ def check_ranking() -> bool:
 #   mode 三档          片段长度上限不同（target/max_passages/max_chars 三条都用上）
 #   text_mode 三种     繁简双轨只加字段，text 仍须是原样的 text_orig
 #   单字 → like 路      该路 score 为 None，排序键退化成 0
-#   超 600 命中         压 MAX_BLOCKS_PER_QUERY 截断与 truncated 标记
+#   超 600 命中         压全量组装（原 MAX_BLOCKS_PER_QUERY 截断已解除，见 6.1）
+#   翻到后段页          压 total 的真实性与 has_more（之/齊 的块数远超 600）
 RB_QUERIES = [
     # (关键词, 书, 版本, 页, 每页, 长度, 繁简)
     ("齊桓公", None, None, 1, 5, "standard", "orig"),
@@ -701,6 +710,9 @@ RB_QUERIES = [
     ("秦穆公 百里奚", None, None, 1, 10, "standard", "orig"),
     ("齊", None, None, 1, 3, "standard", "orig"),               # 单字 → like，score=None
     ("之", None, None, 1, 2, "short", "orig"),                  # 海量命中
+    # 第 601–700 块：解除 600 上限**之前**这一段是拿不到的（旧实现只组装前 600
+    # 条命中 → 328 块，翻到第 17 页就空了）。这条钉住「后段命中真的可达」。
+    ("之", None, None, 7, 100, "short", "orig"),
     # 超 600 命中要**三条路径各压一次**：截断取的是命中表的前 600 条，而三方
     # 命中表的**产出顺序**不同（Python 靠 SQLite 扫 passages 的 rowid 序，
     # JS 靠 likeScan 的打包序）—— 只压 like 路的话，fts/bigram 路的顺序错了
@@ -709,6 +721,11 @@ RB_QUERIES = [
     ("元年。", None, None, 3, 5, "standard", "orig"),            # fts，截断后的分页
     ("大夫", None, None, 1, 5, "standard", "orig"),              # bigram  1443 命中
     ("王", "史记", None, 1, 5, "standard", "orig"),               # like    8832 命中（带书过滤）
+    # 篇名命中（第六点一阶段）：三条形态各压一处
+    ("秦始皇本紀", None, None, 1, 5, "standard", "orig"),  # 正文 0 命中、篇名 1 命中
+    ("五帝本紀", None, None, 1, 5, "standard", "orig"),    # 正文+篇名同时命中 → 去重、both
+    ("秦本紀", None, None, 1, 5, "standard", "orig"),      # 精确匹配要压过「秦始皇本紀」
+    ("公", None, None, 1, 3, "standard", "orig"),         # 篇名被 MAX_SECTION_BLOCKS 截断
     ("城濮之战", None, None, 1, 5, "standard", "orig"),
     ("秦穆公", "史记", None, 1, 5, "standard", "orig"),          # 书+版本过滤下的组装
     ("秦穆公", None, "sbck", 1, 5, "standard", "orig"),
@@ -1398,6 +1415,9 @@ def demo_paths() -> list[str]:
         f"/api/search?q={Q('齊桓公')}&text=simplified",
         f"/api/search?q={Q('齊桓公')}&text=both",
         f"/api/search?q={Q('城濮')}&edition=SBCK",
+        # 篇名检索（第六点一阶段）：演示数据里有 7 个篇名（齊語/晉語/秦語…），
+        # 这条路径走的是 sections.json 的区间表，不走 corpus.json 的正文列。
+        f"/api/search?q={Q('齊語')}",
         # 提问模式（第四阶段入口）
         f"/api/search?q={Q('管仲是怎么死的？')}&mode=question",
         f"/api/search?q={Q('晉文公是怎么死的？')}&mode=question",
@@ -1521,7 +1541,19 @@ def check_demo_site() -> bool:
          f"⑦ 待确认注释：演示樣例·乙 pending={pend}，"
          f"文件 3 的 kind_layer_counts 含 pending_commentary={bool(klc)}")
 
-    # ⑧ 泄漏闸门：产物里出现过的**每一个书名**都必须来自演示书
+    # ⑨ 篇名检索：演示数据要撑得起这条路径，且返回的块要自报「篇名命中」。
+    #    这条同时证明 sections.json 真的随产物下发了 —— 少了它，前端**不会**报错，
+    #    只会静默地搜不到任何篇名（最容易被漏掉的那种坏法）。
+    sec = by_path[f"/api/search?q={quote('齊語')}"]
+    sblocks = sec.get("results") or []
+    smt = [b.get("match_type") for b in sblocks]
+    need(bool(sblocks) and "section" in smt or "both" in smt,
+         f"⑨ 篇名检索「齊語」：{len(sblocks)} 块，match_type={smt}")
+    need(any(b.get("section") for b in sblocks),
+         "   篇名回填：块的 section 字段非空"
+         f"（{sblocks[0].get('section') if sblocks else None}）")
+
+    # ⑩ 泄漏闸门：产物里出现过的**每一个书名**都必须来自演示书
     seen: set[str] = set()
 
     def walk(x) -> None:
@@ -1535,11 +1567,54 @@ def check_demo_site() -> bool:
                 walk(v)
     walk(res)
     alien = sorted(seen - DEMO_TITLES)
-    need(not alien, f"⑧ 泄漏闸门：出现的书名 {sorted(seen)} 全部是演示书")
+    need(not alien, f"⑩ 泄漏闸门：出现的书名 {sorted(seen)} 全部是演示书")
     if alien:
         print(f"       非演示书名：{alien}")
 
     print(f"   {len(spec)} 条路径；{'全部通过' if not fails else str(len(fails)) + ' 项失败'}")
+    return not fails
+
+
+def check_boot() -> bool:
+    """⑭ boot.js 冒烟：公开站那句防误判的提示，真的写进 DOM 了吗。
+
+    boot.js 是浏览器专有的（要 document / fetch），不在 loader.mjs 的
+    ENGINE_FILES 里，所以上面 13 条对拍一条都覆盖不到它。但它承载着公开站上
+    唯一一句「本站不含真实史料，搜不到真实人名是正常的」—— 第六阶段开工时的
+    误判（在公开站搜「楚庄王」为空 → 断定搜索引擎坏了）正是缺这句话造成的。
+
+    这里用桩 DOM 把它真跑一遍。跑 `_site`（build_artifact 装出来的发布产物，
+    `data/` 已被排除）—— 只有那个目录才会走到演示模式分支。
+    """
+    print("⑭ boot.js 冒烟：演示模式的横幅与页脚")
+    site = config.HISTORY_AI_DIR / "_site"
+    if not (site / "data-demo" / "corpus.json").exists():
+        print("   _site 尚未装配，跳过 —— 先跑 "
+              "python -m scripts.site.build_artifact _site")
+        return True                      # 没装配不算失败
+    r = run_node("boot", dir=str(site))
+    banner, foot = r.get("banner", ""), r.get("footer", "")
+
+    fails = []
+
+    def check(label, ok):
+        print(f"   {label} {'OK' if ok else 'FAIL'}")
+        if not ok:
+            fails.append(label)
+
+    check(f"模式判定 {r.get('mode')}/{r.get('kind')}",
+          r.get("mode") == "static" and r.get("kind") == "demo")
+    check("横幅已显示", r.get("bannerHidden") is False
+          and "demo" in (r.get("bannerClass") or ""))
+    check("横幅说明本站不含真实史料", "不含任何真实史料" in banner)
+    # 这条是关键：光说「不含真实史料」不够，必须点破那个错误推论。
+    check("横幅点破误判（搜不到真实人名是正常的）",
+          "搜不到" in banner and "正常的" in banner)
+    check("横幅给出本地部署入口", "本地部署" in banner)
+    # 曾经这里是 `**不含真实史料**`，而 banner() 用的是 innerHTML ——
+    # 星号原样显示，最关键的一句既没加粗、还多了四个星号。
+    check("不含字面 markdown 星号", "**" not in banner)
+    check("页脚已换成演示声明", "演示" in foot and "史記" not in foot)
     return not fails
 
 
@@ -1548,7 +1623,7 @@ CHECKS = {"dual-text": check_dual_text, "zh": check_zh, "norm": check_norm,
           "question": check_question, "ranking": check_ranking,
           "result-block": check_result_block, "aggregate": check_aggregate,
           "retrieve": check_retrieve, "static-api": check_static_api,
-          "demo-site": check_demo_site}
+          "demo-site": check_demo_site, "boot": check_boot}
 
 
 # 每一级判定管什么。报告的头两节直接引用它们，免得报告里的说法与检查代码走偏。

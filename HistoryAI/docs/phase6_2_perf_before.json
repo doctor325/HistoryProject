@@ -1,0 +1,150 @@
+{
+  "label": "扩容前",
+  "db": {
+    "bytes": 102780928,
+    "page_size": 4096,
+    "page_count": 25093,
+    "counts": {
+      "books": 5,
+      "files": 118,
+      "juans": 12,
+      "sections": 763,
+      "passages": 224822,
+      "source_references": 11403,
+      "kr_chars": 70,
+      "src_paragraphs": 11200
+    },
+    "fts_bytes": null
+  },
+  "by_book": [
+    [
+      "史記",
+      "tls",
+      122862
+    ],
+    [
+      "春秋左傳",
+      "tls",
+      53548
+    ],
+    [
+      "戰國策",
+      "sbck",
+      25092
+    ],
+    [
+      "國語",
+      "sbck",
+      15910
+    ],
+    [
+      "尚書",
+      "tls",
+      7410
+    ]
+  ],
+  "control_before_ms": 81.04540000022098,
+  "control_after_ms": 158.78220000013243,
+  "queries": [
+    {
+      "query": "齊桓公",
+      "kind": "普通人物",
+      "ms_min": 81.937699998889,
+      "ms_p50": 82.28629999939585,
+      "peak_bytes": 12656245,
+      "hit_total": 96,
+      "total": 74,
+      "mode": "standard"
+    },
+    {
+      "query": "管仲",
+      "kind": "普通人物",
+      "ms_min": 84.2981999994663,
+      "ms_p50": 91.2717999999586,
+      "peak_bytes": 11241443,
+      "hit_total": 102,
+      "total": 60,
+      "mode": "standard"
+    },
+    {
+      "query": "將軍",
+      "kind": "中频词",
+      "ms_min": 355.4184999993595,
+      "ms_p50": 363.2572999995318,
+      "peak_bytes": 49832672,
+      "hit_total": 1142,
+      "total": 490,
+      "mode": "standard"
+    },
+    {
+      "query": "大夫",
+      "kind": "中频词",
+      "ms_min": 956.1199999989185,
+      "ms_p50": 1103.695499999958,
+      "peak_bytes": 111762950,
+      "hit_total": 1443,
+      "total": 1080,
+      "mode": "standard"
+    },
+    {
+      "query": "曰",
+      "kind": "高频词",
+      "ms_min": 2598.4816000000137,
+      "ms_p50": 2717.904400000407,
+      "peak_bytes": 207781054,
+      "hit_total": 17161,
+      "total": 7982,
+      "mode": "standard"
+    },
+    {
+      "query": "王",
+      "kind": "高频词",
+      "ms_min": 2592.65939999932,
+      "ms_p50": 2639.8978999986866,
+      "peak_bytes": 201006629,
+      "hit_total": 15536,
+      "total": 5480,
+      "mode": "standard"
+    },
+    {
+      "query": "之",
+      "kind": "单字",
+      "ms_min": 4522.828600000139,
+      "ms_p50": 4944.068400000106,
+      "peak_bytes": 232165649,
+      "hit_total": 33241,
+      "total": 9906,
+      "mode": "standard"
+    },
+    {
+      "query": "齊桓公 卒",
+      "kind": "多关键词",
+      "ms_min": 17.466900000727037,
+      "ms_p50": 18.209500000011758,
+      "peak_bytes": 1524968,
+      "hit_total": 9,
+      "total": 9,
+      "mode": "standard"
+    },
+    {
+      "query": "秦始皇本紀",
+      "kind": "篇名",
+      "ms_min": 8.025900000575348,
+      "ms_p50": 8.16820000000007,
+      "peak_bytes": 272911,
+      "hit_total": 0,
+      "total": 1,
+      "mode": "standard"
+    },
+    {
+      "query": "五帝本紀",
+      "kind": "篇名",
+      "ms_min": 10.721399999965797,
+      "ms_p50": 12.422300000253017,
+      "peak_bytes": 302079,
+      "hit_total": 1,
+      "total": 2,
+      "mode": "standard"
+    }
+  ]
+}

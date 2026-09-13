@@ -66,8 +66,9 @@
      * @param {object} packed  corpus.json 的内容
      * @param {Array}  books   books.json 的内容（/api/books 的响应）
      * @param {object} files   files.json 的内容（file_id -> /api/files/<id> 的响应）
+     * @param {Array}  sections  sections.json 的内容（篇名区间表，可缺省）
      */
-    constructor(packed, books, files) {
+    constructor(packed, books, files, sections) {
       this.format = packed.format;
       this.source = packed.source;
       this.bm25 = packed.bm25 || null;   // 两条 FTS 路径计分要用的全局总量
@@ -79,6 +80,11 @@
       this.columns.forEach((c, i) => { this.col[c] = i; });
       this.dicts = Object.create(null);
       for (const c of packed.dict_columns) this.dicts[c] = packed.dicts[c];
+
+      // 篇名区间表（sections.json）。**不在** corpus.json 里：那一列 section 只标在
+      // 标题行上、不向下传播，光有它推不出归属关系，区间表得单独下发。
+      // 缺省成空数组：旧数据目录没有这个文件，退化成「没有篇名数据」而不是崩。
+      this.sections = sections || [];
 
       this.books = books || [];
       this.bookById = new Map(this.books.map((b) => [b.book_id, b]));

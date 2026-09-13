@@ -7,6 +7,7 @@
 ## 产物
 
     corpus.json      全部 passages，列式打包 + 字典编码，按 LIKE 路径的顺序排列
+    sections.json    篇名区间表（file_id, label, first_row, …），篇名检索与回填用
     stats.json       /api/stats 响应（已剥离本机绝对路径）
     books.json       /api/books 响应
     book_files.json  每本书的 /api/books/<id>/files 响应
@@ -357,6 +358,33 @@ def write_json(obj, path: Path) -> int:
     return len(body.encode("utf-8"))
 
 
+def write_sections(cur, out_path: Path) -> int:
+    """导出篇名区间表。763 行，很小。
+
+    为什么单独成文件而不是塞进 corpus.json 的头部：发布闸门（check_publish.py）
+    对 corpus.json 只逐行查 text_orig 那一列，塞进头部等于开一条不受检的通道
+    ——「演示站里混进真实篇名」这件事必须有人能查出来，所以它得是一个闸门
+    认识的独立文件。
+
+    区间（first_row）而非「每个 passage 的篇名」：归属关系不在 passages.section
+    里（那一列只标在标题行上，不向下传播），只在 sections.first_row 的区间里。
+    JS 侧据此二分回填，见 frontend/engine/result_block.js 的 sectionIndex。
+    """
+    rows = cur.execute(
+        "SELECT s.file_id, s.label, s.first_row, s.division, "
+        "       f.book_id, f.file_no, b.family "
+        "FROM sections s JOIN files f ON f.file_id = s.file_id "
+        "JOIN books b ON b.book_id = f.book_id "
+        "WHERE s.file_id IS NOT NULL AND s.label IS NOT NULL "
+        "  AND s.first_row IS NOT NULL "
+        "ORDER BY s.file_id, s.first_row").fetchall()
+    out = [{"file_id": r["file_id"], "label": r["label"],
+            "first_row": r["first_row"], "division": r["division"],
+            "book_id": r["book_id"], "file_no": r["file_no"],
+            "family": r["family"]} for r in rows]
+    return write_json(out, out_path)
+
+
 # --------------------------------------------------------------- 各接口落盘
 
 def export_api(out_dir: Path) -> dict[str, int]:
@@ -423,7 +451,7 @@ def main(argv: list[str]) -> int:
         print("\n[1/2] 只读接口（进程内起 api.main，HTTP 抓取）…")
         sizes.update(export_api(out_dir))
     if not skip_corpus:
-        print("\n[2/2] 语料打包（流式写入）…")
+        print("\n[2/3] 语料打包（流式写入）…")
         conn = api_db.connect()
         try:
             info = write_corpus(conn.cursor(), out_dir / "corpus.json")
@@ -432,6 +460,17 @@ def main(argv: list[str]) -> int:
         sizes["corpus.json"] = (out_dir / "corpus.json").stat().st_size
         print(f"  corpus.json       {info['rows']:,} 行 / {len(info['columns'])} 列 / "
               f"字典列 {len(info['dict_columns'])} / {len(info['file_span'])} 个文件")
+    # 篇名区间表**总是**写：它只有 763 行，跳过它只会留下一份与语料不同步的
+    # 陈旧文件，而「陈旧」正是最难发现的那种错。
+    print("\n[3/3] 篇名区间表…")
+    conn = api_db.connect()
+    try:
+        sizes["sections.json"] = write_sections(
+            conn.cursor(), out_dir / "sections.json")
+    finally:
+        conn.close()
+    n_sec = len(json.loads((out_dir / "sections.json").read_text(encoding="utf-8")))
+    print(f"  sections.json     {n_sec:,} 个篇名区间")
 
     if sizes:
         print("\n产物：")

@@ -1,5 +1,6 @@
 /* 先秦史料查询 —— 中文史料全文检索 + 人工检查台（vanilla，无依赖）
- * 路由：#/ home · #/search?q=… · #/p/{id} · #/books · #/book/{id} · #/file/{id} · #/pending · #/about
+ * 路由：#/ home · #/search?q=… · #/p/{id} · #/books · #/book/{id} · #/file/{id} ·
+ *       #/read/{id}?row=N（读全文） · #/pending · #/about
  * 文案中文；代码英文。所有列表分页，不一次取全库。
  * 出处只展示数据库真实字段（无则「暂无」），绝不按文件名猜章节；上下文是同文件真实相邻记录。 */
 "use strict";
@@ -154,8 +155,10 @@ async function route() {
     if (seg[0] === "ask") return await askView(params);
     if (seg[0] === "p") return await passageView(+seg[1], params);
     if (seg[0] === "books") return await booksView();
+    if (seg[0] === "coverage") return await coverageView();
     if (seg[0] === "book") return await bookView(seg[1]);
     if (seg[0] === "file") return await fileView(+seg[1], params);
+    if (seg[0] === "read") return await readView(+seg[1], params);
     if (seg[0] === "pending") return await pendingView();
     if (seg[0] === "about") return await aboutView();
     view.innerHTML = `<div class="card">页面不存在：${esc(seg.join("/"))}</div>`;
@@ -330,6 +333,7 @@ function renderResults(res) {
       · 第 ${(res.page - 1) * res.page_size + 1}–${Math.min(blocks, res.page * res.page_size)} 段
       <span class="quiet">· 原始命中 ${hits.toLocaleString()} 条，已按上下文合并为完整片段</span>
       ${res.truncated ? `<br><span class="quiet">命中过多，本次只组装了前 ${blocks.toLocaleString()} 段</span>` : ""}
+      ${res.section_truncated ? `<br><span class="quiet">命中的篇名过多，篇名结果只列了前若干条（正文结果不受影响）</span>` : ""}
     </div>`;
   searchState.results.forEach((b, i) => {
     html += blockCard(b, terms, i, searchState.text, searchState.simpleTerms); });
@@ -344,6 +348,14 @@ function renderResults(res) {
 // layer 是第一阶段已判定的字段，这里只做**如实转述**，不重新判定任何归属。
 // 带注候选的片段本来就短（原刊行内括注常只有十几个字），说清楚来由，
 // 免得看起来像「检索结果不全」。
+/* 这一块**是怎么**命中的（第六点一阶段）。「篇名命中」与「正文命中」不是一回事：
+ * 搜「秦始皇本紀」时正文里一处都没有，命中的是篇名本身。不标出来，读者会看到
+ * 一个「没有高亮、也没有命中计数」的片段，合理地读成「搜到了却什么都没有」。 */
+const MATCH_TIP = {
+  section: ["篇名命中",
+    "命中的是篇名，正文里没有这个词；这里给的是该篇开头，可继续向下读"],
+  both: ["正文 + 篇名命中", "这一篇既命中了篇名，正文里也出现了检索词"],
+};
 const LAYER_TIP = {
   commentary_candidate: ["原刊括注 · 待确认",
     "原书行内括号里的内容，是否为注文待人工确认；系统不自动归属任何注者，也不与正文混排"],
@@ -384,16 +396,25 @@ function blockCard(b, terms, idx, tmode, sterms) {
     ? (b.pb_last && b.pb_last !== b.pb_first ? `第 ${b.pb_first}–${b.pb_last} 页` : `第 ${b.pb_first} 页`)
     : null;
   const ly = LAYER_TIP[b.layer] || (b.layer ? [b.layer, ""] : null);
+  const mt = MATCH_TIP[b.match_type] || null;
   const btns = [];
   if (b.more_before) btns.push(`<button class="btn" onclick="expandBlock(${idx},'before',this)">← 继续向上文</button>`);
   if (b.more_after) btns.push(`<button class="btn" onclick="expandBlock(${idx},'after',this)">继续向下文 →</button>`);
   btns.push(`<a class="btn" href="#/p/${b.hit_passage_id}?ctx=1">定位到命中句 · 单条原文</a>`);
+  // 读全文（§17）：搜索页只是「找到哪里」，读整篇要换一页——那一页没有表格、
+  // 没有行号，只有连续的正文，落点就在这一段的起始行。
+  // 说的是「全文」而不是「本篇全文」：那一页按**文件**连续读（先秦一文件即一卷），
+  // 篇的边界在那里并没有标出来，写「本篇」会承诺一个页面上不存在的范围。
+  if (b.file_id && b.row_first != null)
+    btns.push(`<a class="btn" href="#/read/${b.file_id}?row=${b.row_first}"
+      title="按原文件连续读全文，从这一段的开头进入">查看全文</a>`);
   return `<div class="card blk${b.layer && b.layer !== "main" ? " blk-side" : ""}" id="blk${idx}">
     <div class="hit-head">
       <span class="hit-book">《${esc(b.book_title || "暂无")}》</span>
       ${loc ? `<span class="hit-loc">${esc(loc)}</span>` : `<span class="chip structure">卷/篇暂无</span>`}
       ${pageSpan ? chip(pageSpan, "page") : ""}
       ${ly ? chip(ly[0], b.layer === "commentary_candidate" ? "cand" : "structure", ly[1]) : ""}
+      ${mt ? chip(mt[0], "cand", mt[1]) : ""}
       ${b.match_count > 1
         ? chip(`本段命中 ${num(b.match_count)} 处`, "main", "该片段内命中检索词的记录条数")
         : chip("命中 1 处", "main")}
@@ -547,6 +568,70 @@ async function booksView() {
   view.innerHTML = html;
 }
 
+/* -------- 篇名覆盖（#/coverage）：Section Coverage Audit 的页面版 --------
+ * 数据全部来自 /api/books（静态演示模式下是 data-demo/books.json）——**不新增
+ * 任何发布文件、不动 check_publish 白名单**。字段与 scripts/pipeline/manifest.py
+ * 的审计表同源同判据，两处给同一个答案（改一处必须改另一处）。
+ *
+ * 覆盖率的算法是 section 的**区间模型**：一条 section 覆盖它所在文件内自 first_row
+ * 起至该文件下一条 section（最后一条到文件末）。所以口径是「正文行有没有落在本
+ * 文件第一条 section 之后」，与 passages.section 字段无关。缺口有三类成因
+ * （结构行 / 源转录缺卷首题 / 篇题识别失败），页面上直说，不粉饰成一个百分比。
+ */
+async function coverageView() {
+  const view = $("#view");
+  const books = await getBooks();
+  const body = books.reduce((s, b) => s + num(b.body_rows), 0);
+  const covered = books.reduce((s, b) => s + num(b.covered_rows), 0);
+  const secs = books.reduce((s, b) => s + num(b.sections), 0);
+  const worst = books.reduce((a, b) =>
+    (a === null || num(b.section_coverage) < num(a.section_coverage)) ? b : a, null);
+  let html = `<a class="backlink" href="#/books">← 数据检查</a>
+    <h3>篇名覆盖审计 · ${books.length} 部史书</h3>
+    <p class="quiet">这一页回答的是「每卷正文有没有一个篇名可归」。归了篇，篇名检索
+      与「定位到命中句」才知道自己在哪一篇里；没归篇的正文照样能全文检索，只是没有篇名。</p>
+    <div class="overflow"><table class="dev"><tr>
+      <th>书名</th><th>版本</th><th>篇名</th><th>卷</th><th>正文行</th><th>已归篇</th>
+      <th>覆盖</th><th>状态</th><th></th></tr>`;
+  for (const b of books) {
+    const pct = (num(b.section_coverage) * 100).toFixed(1) + "%";
+    html += `<tr><td><b>《${esc(b.title)}》</b></td>
+      <td>${chip(fam(b.family), b.family === "sbck" ? "structure" : "")}</td>
+      <td>${num(b.sections).toLocaleString()}</td>
+      <td>${num(b.juans) ? num(b.juans).toLocaleString() : "—"}</td>
+      <td>${num(b.body_rows).toLocaleString()}</td>
+      <td>${num(b.covered_rows).toLocaleString()}</td>
+      <td class="mono">${pct}</td>
+      <td>${covChip(b.coverage_status)}</td>
+      <td><a class="backlink" href="#/book/${encodeURIComponent(b.book_id)}">文件列表 →</a></td></tr>`;
+  }
+  html += `</table></div>
+    <p class="quiet">合计 ${secs.toLocaleString()} 条篇名区间，覆盖
+      ${covered.toLocaleString()} / ${body.toLocaleString()} 行正文
+      （${(body ? covered / body * 100 : 100).toFixed(1)}%）。</p>
+    <div class="card"><b>覆盖不到的行是什么</b>
+      <ul class="quiet">
+        <li><b>结构行</b>——卷首的撰者/注者署名、總目、四庫叢書题。每文件一两行，
+          本就不属于任何一篇。</li>
+        <li><b>源转录缺卷首题</b>——个别文件的首行直接是正文，卷名只在卷末版心题里
+          出现，整卷无所归。这是源文件如此，不硬凑。</li>
+        <li><b>篇题识别失败</b>——这才是要修的 bug，也是本页 <span class="chip fail">FAIL</span>
+          判据（整本书一条篇名都没认出来）要抓的。</li>
+      </ul></div>`;
+  if (worst && num(worst.section_coverage) < 0.99) {
+    html += `<p class="quiet">当前覆盖最低：<b>《${esc(worst.title)}》</b>
+      ${(num(worst.section_coverage) * 100).toFixed(1)}%
+      （${num(worst.uncovered_rows).toLocaleString()} 行未归篇）。</p>`;
+  }
+  view.innerHTML = html;
+}
+function covChip(status) {
+  const s = status || "OK";
+  if (s === "FAIL") return chip("FAIL", "fail", "整本书没有一条篇名——篇名检索不可用");
+  if (s === "WARN") return chip("WARN", "warn", "缺口超过 10%，需要人看一眼");
+  return chip("OK", "main");
+}
+
 async function bookView(bookId) {
   const view = $("#view");
   const [files, books] = await Promise.all(
@@ -698,6 +783,113 @@ async function loadRawPage() {
 }
 function rawJump() { rawGo(Math.max(1, parseInt($("#rawgo").value, 10) || 1)); }
 function rawGo(n) { fv.rawStart = Math.max(1, n); loadRawPage(); }
+
+/* ================= 阅读全文（#/read/{file_id}?row=N） ================= */
+/* 任务书 §17：搜索页负责「找到哪里」，这一页负责「读全部内容」。
+ *
+ * 与「检查台」（#/file/）的分工：检查台是逐条核对的**表格**（类型/层/状态/行号
+ * 一列不少），这一页是**读**的——连续正文，一页 500 条，没有列头、没有行号。
+ * 两者看着像，用途相反，所以是两条路由，不是同一个页面的两个标签。
+ *
+ * 只渲染 kind='passage' 的记录，与结果片段的取舍一致：标题行、`# src:` 解析
+ * 元数据行不是史料正文，混进阅读流里会读成正文的一部分。跳过的条数如实写在页顶。
+ */
+const rv = { id: 0, offset: 0, limit: 500, total: 0, anchorRow: null, info: null };
+
+/** 第一条 row_no >= target 的记录在文件里的**下标**。
+ *
+ *  为什么不直接按行号算下标：page/heading/comment 层记录也占位置，第 N 行的
+ *  下标不是 N（史記文件 82 有 17,410 行、22,000+ 条记录）。而接口只认 offset，
+ *  所以按 (row_no, seq) 升序二分找 —— 记录本来就是按这个序返回的。
+ *  代价是约 log2(条数) ≈ 15 次 limit=1 的请求，比「从头翻到目标页」少一个量级。 */
+async function offsetOfRow(fileId, target) {
+  let lo = 0, hi = Math.max(0, rv.total - 1);
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    const d = await api(`/api/files/${fileId}/passages?offset=${mid}&limit=1`);
+    rv.total = num(d.total);
+    if (!d.rows || !d.rows.length) break;
+    if (num(d.rows[0].row_no) < target) lo = mid + 1; else hi = mid;
+  }
+  return lo;
+}
+
+async function readView(fileId, params) {
+  const view = $("#view");
+  let f;
+  try { f = await api(`/api/files/${fileId}`); }
+  catch (e) { view.innerHTML = `<div class="card">文件加载失败：${esc(e.message)}</div>`; return; }
+  rv.id = fileId; rv.info = f; rv.anchorRow = params.row ? num(params.row) : null;
+  const d0 = await api(`/api/files/${fileId}/passages?limit=1&offset=0`);
+  rv.total = num(d0.total);
+  rv.offset = rv.anchorRow ? await offsetOfRow(fileId, rv.anchorRow) : 0;
+  rv.offset = Math.max(0, Math.min(rv.offset, Math.max(0, rv.total - 1)));
+  view.innerHTML = `<a class="backlink" href="#/file/${fileId}">← 解析记录 / 原文对照（检查台）</a>
+    <div class="card">
+      <div class="passage-top"><b style="font-size:15px">${esc(f.file_name)}</b>
+        <span class="quiet">${esc(f.book_id)}</span></div>
+      <div class="quiet" style="margin-top:4px">连续正文，一页 ${rv.limit} 条记录
+        （只显示 <span class="mono">kind=passage</span> 的史料正文）。
+        ${searchState.text !== "orig"
+          ? "本页按原文（繁体）显示，不带繁简双轨。" : ""}</div>
+    </div>
+    <div id="rbody"><div class="load">正在加载…</div></div>`;
+  loadReadPage();
+}
+
+async function loadReadPage() {
+  const rb = $("#rbody");
+  if (!rb) return;
+  let d;
+  try { d = await api(`/api/files/${rv.id}/passages?offset=${rv.offset}&limit=${rv.limit}`); }
+  catch (e) { rb.innerHTML = `<div class="card">加载失败：${esc(e.message)}</div>`; return; }
+  rv.total = num(d.total);
+  const rows = d.rows || [];
+  const body = rows.filter(r => r.kind === "passage");
+  const skipped = rows.length - body.length;
+  const shownFrom = rv.offset + 1, shownTo = rv.offset + rows.length;
+  const atHead = rv.offset <= 0, atTail = shownTo >= rv.total;
+  let html = `<div class="controls">
+      <button class="btn" onclick="readGo(${rv.offset - rv.limit})" ${atHead ? "disabled" : ""}>← 上一页</button>
+      <label>跳到行</label><input id="rgo" type="number" min="1" style="width:100px">
+      <button class="btn" onclick="readJump()">跳转</button>
+      <button class="btn" onclick="readGo(${rv.offset + rv.limit})" ${atTail ? "disabled" : ""}>下一页 →</button>
+      <span class="quiet">第 ${shownFrom.toLocaleString()}–${shownTo.toLocaleString()} 条 /
+        共 ${rv.total.toLocaleString()} 条</span></div>
+    ${skipped ? `<p class="quiet">本页另有 ${skipped} 条非正文记录（标题/注释/解析元数据），
+      不在阅读流里显示；要看它们请用「检查台」。</p>` : ""}
+    <div class="read-body">`;
+  let hitAnchor = false;
+  for (const r of body) {
+    const isAnchor = rv.anchorRow !== null && !hitAnchor && num(r.row_no) >= rv.anchorRow;
+    if (isAnchor) hitAnchor = true;
+    html += `<span class="read-rec${isAnchor ? " read-anchor" : ""}"
+      ${isAnchor ? 'id="readAnchor"' : ""}>${rich(r.text_orig || "")}</span>`;
+  }
+  if (!body.length) html += `<p class="quiet">本页没有正文记录。</p>`;
+  html += `</div>`;
+  if (rv.anchorRow !== null) {
+    html += `<p class="quiet">${hitAnchor
+      ? `已定位到第 ${rv.anchorRow} 行（黄底那一条）。`
+      : `第 ${rv.anchorRow} 行不在本页范围内。`}</p>`;
+  }
+  rb.innerHTML = html;
+  const a = $("#readAnchor");
+  if (a && a.scrollIntoView) a.scrollIntoView({ block: "center" });
+}
+
+function readGo(off) {
+  rv.offset = Math.max(0, Math.min(off, Math.max(0, rv.total - 1)));
+  rv.anchorRow = null;              // 手动翻页后不再声称「已定位」
+  loadReadPage();
+}
+async function readJump() {
+  const n = parseInt($("#rgo").value, 10);
+  if (!n || n < 1) return;
+  rv.anchorRow = n;
+  rv.offset = await offsetOfRow(rv.id, n);
+  loadReadPage();
+}
 
 /* ================= 待确认注释（原刊括号） ================= */
 const pv = { bookId: "", fileId: 0, page: 1, pageSize: 50 };

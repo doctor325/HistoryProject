@@ -36,7 +36,7 @@ class BookInfo:
     files: list = field(default_factory=list)  # FileInfo
     id_hint: str = ""
     title: str = ""
-    family: str = ""  # tls | sbck | ""
+    family: str = ""  # tls | sbck | wyg | ""
     edition: str = ""
 
     def to_dict(self) -> dict:
@@ -164,10 +164,15 @@ def scan_library(library: Path | None = None) -> list[BookInfo]:
             bi.title = h.get("TITLE", "")
             ed = (h.get("BASEEDITION") or "").strip()
             bi.edition = ed
+            # 家族 = BASEEDITION（kanripo 自己的属性，不是我们的猜测）。
+            # wyg = 文淵閣四庫全書，第六点二阶段加入：kanripo 的《前漢書》《後漢書》
+            # 只有这一个底本，形态与 tls/SBCK 都不同（见 structure/segmentation）。
             if ed == "tls":
                 bi.family = "tls"
             elif ed == "SBCK":
                 bi.family = "sbck"
+            elif ed == "WYG":
+                bi.family = "wyg"
             # 家族以多数 txt 投票为准（不做零散猜测）
         books.append(bi)
     return books

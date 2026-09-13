@@ -1,0 +1,32 @@
+{
+  "史記": {
+    "files": 14,
+    "rows": 122862,
+    "passages": 112620,
+    "sections": 129
+  },
+  "國語": {
+    "files": 22,
+    "rows": 15910,
+    "passages": 15264,
+    "sections": 28
+  },
+  "尚書": {
+    "files": 59,
+    "rows": 7410,
+    "passages": 6241,
+    "sections": 106
+  },
+  "戰國策": {
+    "files": 11,
+    "rows": 25092,
+    "passages": 24028
+  },
+  "春秋左傳": {
+    "files": 12,
+    "rows": 53548,
+    "passages": 45155,
+    "sections": 500,
+    "juans": 12
+  }
+}

@@ -1,10 +1,13 @@
-# HistoryAI — 先秦典籍解析管线 + 全文检索查询台
+# HistoryAI — 典籍解析管线 + 全文检索查询台
 
 第一阶段把 Kanripo 五部先秦典籍的原始 txt 解析为**可人工检查的结构化数据**并提供
 逐条核对前端（原始史料 → Parser → 数据库）；第二阶段在其上加**先秦史料全文检索 +
 中文查询台 + 上下文接口**（检索/上下文均出自数据库真实记录，不接任何 AI/向量模型）；
 第三阶段做检索结果的分块与出处对照，第四阶段加**自然语言提问 + 事件级聚合 +
-繁简双轨**；第五阶段把整套检索**移植到浏览器**，做成零服务器成本的公开静态站。
+繁简双轨**；第五阶段把整套检索**移植到浏览器**，做成零服务器成本的公开静态站；
+第六阶段把语料从 5 部先秦扩到 **7 部**（新增 前漢書/後漢書，WYG 文淵閣四庫全書底本），
+并证明「书越加越多也不会失控」：跨篇界块归零、篇名覆盖审计、召回用例按时代分文件、
+扩容前后性能同表对比。
 
 公开站：**https://doctor325.github.io/HistoryProject/**（演示数据；见下）
 
@@ -21,19 +24,22 @@ HistoryProject/
 │   ├── guoyu/       國語    KR2e0001  SBCK   22 txt
 │   ├── shangshu/    尚書    KR1b0001  tls    59 txt
 │   ├── shiji/       史記    KR2a0001  tls    14 txt
+│   ├── qianhanshu/  前漢書  KR2a0007  WYG   102 txt   ← 第六点二阶段加入
+│   ├── houhanshu/   後漢書  KR2a0009  WYG   125 txt   ← 第六点二阶段加入
 │   ├── zhanguoce/   戰國策  KR2e0003  SBCK   11 txt
 │   └── zuozhuan/    春秋左傳 KR1e0001  tls    12 txt
 └── HistoryAI/
     ├── scripts/pipeline/       解析管线（本阶段实现）
-    │   ├── config.py           路径/正则集中定义（不硬编码五书）
+    │   ├── config.py           路径/正则集中定义（不硬编码书名）
     │   ├── kanripo_header.py   文件头 org 元数据解析
     │   ├── inventory.py        只读扫描 → data/metadata/{books,files,import_runs}.json
     │   ├── records.py          记录模型（kind/layer/status/…）
     │   ├── structure.py        集中规则（pb/出处/标题/括号注/分层/归一化）
     │   ├── segmentation.py     逐文件状态机 → 记录流
-    │   ├── jsonl_io.py         五书 → data/processed/parsed_*.jsonl
+    │   ├── jsonl_io.py         各书 → data/processed/parsed_*.jsonl
     │   ├── sqlite_store.py     jsonl → data/database/history.db（全量重建，幂等）
     │   ├── validate.py         对账校验（sha256/字符守恒/语法）
+    │   ├── manifest.py         Corpus Manifest + Section Coverage Audit（第六点二阶段）
     │   └── run_all.py          一键编排入口
     ├── search/                 全文检索（第二阶段）
     │   ├── engine.py           FTS5 trigram / bigram / LIKE 三路调度 + 书/版别名
@@ -47,13 +53,22 @@ HistoryProject/
     │   ├── data-demo/          自撰演示数据（MIT，入库）（第五阶段）
     │   └── data/               （git 忽略）真实语料导出，**永不发布**
     ├── scripts/site/           静态站工具：字符表 / 导出 / 演示数据 / 闸门 / 一致性
-    ├── tests/                  unittest 144 例（一阶段 43 + 二阶段 85 + 四阶段 16）
+    ├── tests/                  unittest 168 例（一阶段 43 + 二阶段及以后 109 + 四阶段 16）
+    │   ├── search_cases/       召回测试集，**按时代分文件**（第六点二阶段 §21）
+    │   │   ├── preqin.json     先秦 83 例（第六阶段原有，id 沿用不改名）
+    │   │   └── qin_han.json    秦汉 77 例（第六点二阶段，id 前缀 qh-）
+    │   ├── recall.py           召回跑分器 + 八维归因（非 unittest）
+    │   ├── rebaseline_cases.py 重测用例集的 baseline_hits/blocks（加书/改组装后跑）
+    │   └── perf_corpus.py      语料规模性能基线（扩容前后同表对比）
     ├── database/schema.sql     SQLite 结构（与 sqlite_store.SCHEMA 镜像）
     └── data/                   （git 忽略）全部派生产物：metadata/processed/database/logs
 ```
 
 `prompts/` 为空脚手架。`docs/` 下是各阶段报告（含第五阶段的
-[一致性验证报告](docs/phase5_consistency.md)）与数据来源说明。
+[一致性验证报告](docs/phase5_consistency.md)、第六阶段的
+[召回跑分报告](docs/phase6_recall.md)、第六点二阶段的
+[规模扩充与结构覆盖报告](docs/phase6_2_report.md) 与
+[引擎一致性报告](docs/phase6_2_consistency.md)）与数据来源说明。
 
 ## 解析模型
 
@@ -97,13 +112,17 @@ python -m scripts.pipeline.run_all --no-validate
 # 只跑校验（须先有 data/database/history.db）
 python -m scripts.pipeline.validate
 
-# 测试（144 例；含真实史料/真实库抽查，library 或库不在场时对应文件自动跳过）
+# 测试（168 例；含真实史料/真实库抽查，library 或库不在场时对应文件自动跳过）
 # 注意：tests/ 下没有 __init__.py，`python -m unittest discover -s tests` 会报
 #      "Start directory is not importable"，必须逐个文件跑并带 PYTHONPATH=.：
+# test_phase4_questions.py 走 HTTP，需先 `python -m api.main`（改代码后先重启）
 for f in tests/test_*.py; do PYTHONPATH=. PYTHONIOENCODING=utf-8 python "$f"; done
 
 # 性能基准（打印逐操作 min/median，见「第二阶段性能实测」）
 python tests/perf_phase2.py
+
+# 召回跑分（见「召回可观测性」；报告写 docs/phase6_recall.md）
+PYTHONPATH=. PYTHONIOENCODING=utf-8 python tests/recall.py
 
 # 启动中文查询台（浏览器打开 http://127.0.0.1:8600/）
 python -m api.main
@@ -112,27 +131,39 @@ python -m api.main
 日志在 `data/logs/pipeline_*.log`；校验报告写 `data/metadata/validation.json`。
 数据库是纯派生物：删掉 `data/` 后跑一次 `run_all` 即复原，library 从不被写入。
 
-## 校验结果（2026-09-09 全量）
+## 校验结果（2026-09-12 全量，7 部书）
 
 | 项 | 结果 |
 |---|---|
-| 书 / txt 文件 | 5 / 118 |
-| 记录总数 | 224,822（正文 203,308 + 结构/页码等） |
-| sha256 对账 / 头部元数据对账 | 118/118 一致 |
-| 字符守恒（逐行拼回 == library 原件） | 118/118 通过 |
+| 书 / txt 文件 | 7 / 345 |
+| 记录总数 | 421,178（正文 292,206 + 结构/页码/注候选等） |
+| sha256 对账 / 头部元数据对账 | 345/345 一致 |
+| 字符守恒（逐行拼回 == library 原件） | 345/345 通过 |
 | 不合法 `<pb:>` / `&KR…;` | 0 / 0 |
-| 待确认 pending | 17,347（全部为行内注候选，见下） |
-| 缺字码 &KR | 70 种 / 172 处，原样保留 |
+| 待确认 pending | 79,713（全部为行内注候选，见下） |
+| 缺字码 &KR | 221 种 / 853 处，原样保留 |
 
-逐书（2026-09-09 run_all 产物）：
+逐书（2026-09-12 run_all 产物）：
 
-| 书 | txt | 记录 | 正文 main | 括号注候选 pending_commentary | 序 | 跋/目 | #src 出处块 |
-|---|---|---|---|---|---|---|---|
-| 尚書 | 59 | 7,410 | 5,686 | 0 | 0 | 0 | 802 |
-| 春秋左傳 | 12 | 53,548 | 45,155 | 0 | 0 | 0 | 5,491 |
-| 史記 | 14 | 122,862 | 112,620 | 0 | 0 | 0 | 5,112 |
-| 國語 | 22 | 15,910 | 8,217 | 7,012 | 35 | 0 | 0 |
-| 戰國策 | 11 | 25,092 | 13,259 | 10,335 | 251 | 183 | 0 |
+| 书 | txt | 记录 | 正文 main | 括号注候选 | 序 | 跋/目 | #src 出处块 | 结构/附录 |
+|---|---|---|---|---|---|---|---|---|
+| 尚書 | 59 | 7,410 | 5,686 | 0 | 0 | 0 | 800 | 1,724 |
+| 春秋左傳 | 12 | 53,548 | 45,155 | 0 | 0 | 0 | 5,491 | 8,393 |
+| 史記 | 14 | 122,862 | 112,620 | 0 | 0 | 0 | 5,112 | 10,242 |
+| 前漢書 | 102 | 112,772 | 59,645 | 37,619 | 264 | 464 | 0 | 14,780 |
+| 後漢書 | 125 | 83,596 | 47,663 | 24,759 | 192 | 736 | 0 | 10,246 |
+| 國語 | 22 | 15,910 | 8,217 | 7,012 | 35 | 0 | 0 | 646 |
+| 戰國策 | 11 | 25,080 | 13,220 | 10,323 | 251 | 183 | 0 | 1,103 |
+
+两处与新语料有关的口径差别，别按同一列横向比：
+
+- **#src 出处块**只有 tls 家族有（尚書/左傳/史記的 `# src:` 注释块），是
+  `source_references` 表的行数。尚書原件里其实有 808 行 `# src:`，其中 8 行在文件头
+  （`#+PROPERTY:` 那一段里，是整篇的出典如 `# src: SHU 4.1.1; tr. Karlgren p. 8ff`），
+  不属于任何一条正文，因此不入表。WYG 底本没有这种块，它的对应物是**每卷末的
+  「考證」**，进 `layer=appendix`（记在最后一列）。
+- **行内注候选**：SBCK 是圆括号注（韦昭解/高诱注），WYG 是颜师古/章怀太子的行内注，
+  两者形态不同但都切成 `commentary_candidate/pending_commentary`（原文一字不删）。
 
 ## 已知问题与取舍（原因 / 影响 / 下一步）
 
@@ -156,7 +187,7 @@ python -m api.main
 ## 检查路径（验收步骤）
 
 1. 启动：`python -m api.main`，浏览器开 `http://127.0.0.1:8600/`。
-2. 首页见五书统计（正文/待确认/缺字行数）。
+2. 首页见全书统计（书数/正文/待确认/缺字行数）。
 3. 选「國語 → 文件列表 → KR2e0001_001.txt（卷一正文）」：
    - 头部元数据卡可见 TITLE/ID/BASEEDITION/WITNESS 原样；
    - 「解析记录」页：正文 main 行文本含 `<pb:…>`（绿色）、¶（灰）、行内括号注为紫字
@@ -213,13 +244,16 @@ segmented 全量层可随时生成，不改解析逻辑。
 | 路由 | 说明 |
 |---|---|
 | `/api/search?q=&book=&edition=&page=&page_size=` | 全文检索；`mode: fts/bigram/like`；每项含完整出处块（书名/卷/篇/节/版本/原文件/页码/出处注）+ 原文 |
+| `/api/search?q=&mode=short\|standard\|long` | 每屏多少字（`limits` 里回报本次口径）；`total` = 片段数、`hit_total` = 原始命中数，`has_more` 与 `total` 一致 |
 | `/api/passages/{id}/context?before=3&after=3` | 真实相邻记录：同文件 kind=passage，按 (row_no, seq) 前 3/后 3（上限 10），**非 AI 补写** |
 | `/api/stats` | 统计 + FTS 状态（docs 为正文文档数口径，非全表行数） |
 | `/api/books`、`/api/books/{id}/files`、`/api/files/{id}`、`/api/files/{id}/passages`、`/api/files/{id}/raw`、`/api/passages/{id}` | 第一阶段检查台全部保留 |
 
 前端 = 无依赖 hash SPA（`frontend/` 三件套）：首页搜索 + 史料卡片；`#/search` 全文检索
-（史书/版本筛选 + 每页 20/50/100）；`#/p/{id}` 阅读式史料详情（上下文前 3/后 3 可点跳转、
-数据详情默认折叠）；`#/books`/`#/book/{id}`/`#/file/{id}` 数据检查台（解析记录 + 原文对照
+（史书/版本筛选 + 每页 20/50/100；结果块标 `match_type`：正文命中 / 篇名命中 / 两者）；
+`#/p/{id}` 阅读式史料详情（上下文前 3/后 3 可点跳转、数据详情默认折叠）；
+`#/read/{file_id}?row=N` 读原文件全文（从指定行进入并高亮，一次 500 行）；
+`#/books`/`#/book/{id}`/`#/file/{id}` 数据检查台（解析记录 + 原文对照
 两页签，行级数据详情）；`#/pending` 待确认注释逐条过 SBCK 原刊括号（状态保持
 pending_commentary，系统不自动归属韦昭/高诱）；`#/about` 项目说明。视觉：纸张底色 +
 印章红点缀、宋体正文、无第三方库。
@@ -230,7 +264,7 @@ pending_commentary，系统不自动归属韦昭/高诱）；`#/about` 项目说
 | 操作 | min | median |
 |---|---|---|
 | /api/stats（首页数据） | 90ms | 92ms |
-| /api/books（首页五书卡） | 153ms | 167ms |
+| /api/books（首页书卡） | 153ms | 167ms |
 | /api/books/KR2e0001/files（22 文件） | 18ms | 24ms |
 | /api/files/*/passages（第 21 页 ×50） | 1.8ms | 2.1ms |
 | /api/files/*/raw（200 行，冷/热读原件） | 2–4ms | 3–7ms |
@@ -245,6 +279,9 @@ pending_commentary，系统不自动归属韦昭/高诱）；`#/about` 项目说
 每行高亮 DOM + 每路由重复 /api/stats + 一次 22 万行统计扫描）已在重设计 + 聚合改造后消除：
 `list_books/list_files` 由「每行相关子查询」改为单趟 `GROUP BY … FILTER` 聚合（0.9s→0.17s）。
 
+> 上表是**扩容前（5 部书 / 224,822 行）**的数，保留原样以便对照。语料扩到 7 部
+> （421,178 行）后的同表实测见 [`docs/phase6_2_report.md`](docs/phase6_2_report.md)。
+
 ## 第二阶段已知问题
 
 1. **「崤之战」搜不到**：语料原文作「殽」（殽之戰，66 处），崤为后世通行写法——属原文
@@ -255,14 +292,17 @@ pending_commentary，系统不自动归属韦昭/高诱）；`#/about` 项目说
    按阶段一结论**不删不盖**，仅此标注；库只认 HistoryLibrary。
 4. `passages_bg`/`passages_fts` 为派生表：删除 data/ 后 run_all 全量重建即复原；
    library 与 data/raw 零写入。
-5. `stats.fts.docs` 为正文文档数（203,308）口径；external-content FTS 的 count(*) 会读
+5. `stats.fts.docs` 为正文文档数（当前 292,206）口径；external-content FTS 的 count(*) 会读
    content 表返回全表行数，已改为按插入谓词从 content 侧计数（见 sqlite_store 注释）。
 
 ## 第二阶段验收路径（浏览器）
 
+> 步骤沿用第二阶段，条数已随语料扩到 7 部更新（2026-09-12 实测）；步骤 2 的示例
+> 是**块（结果卡）数**，不是命中条数，两者口径不同见「结果块」一节。
+
 1. `python -m api.main` → http://127.0.0.1:8600/
-2. 首页搜索框试示例：齐桓公（96 条）/ 管仲（102 条）/ 城濮（31 条）——简体自动转繁体；
-   顶部「数据检查」「待确认注释」在导航可见。
+2. 首页搜索框试示例：齐桓公（126 块 / 151 条命中）/ 管仲（141 / 189）/ 城濮（35）——
+   简体自动转繁体；顶部「数据检查」「篇名覆盖」「待确认注释」在导航可见。
 3. 结果卡：书名/卷篇/页码/版本齐全者如实显示、缺失显示「暂无」；括号注候选有紫色
    「原刊括号内容 · 待确认」角标；点「查看原文 · 上下文」。
 4. 详情页：正文宋体大字号；上下文 = 前 3 后 3 真实相邻句（点任意段跳转）；
@@ -332,15 +372,17 @@ pending_commentary，系统不自动归属韦昭/高诱）；`#/about` 项目说
    更好的做法是提示用户补国名，属交互设计，本阶段未做。
 4. **短称误配残余风险**：`bare_hit` 只看紧邻前一个字，正文写「是為桓公」而前文讲的
    是别国时仍可能误配；目前靠降档（weak，2 分）压低影响，未消除。
-5. **SBCK 行内括注仍会出现在片段正文里**（§19B 未解决）：17,347 条保持
-   `pending_commentary`，未裁注者；因为 `text_orig` 就是原文，不能删。
+5. **行内括注仍会出现在片段正文里**（§19B 未解决）：目前 79,713 条保持
+   `pending_commentary`，未裁注者；因为 `text_orig` 就是原文，不能删。第六点二阶段
+   加入的 WYG 底本把同一问题放大了：颜师古/章怀太子的行内注约占該书 36% 字符，
+   切出来的是**候选**记录，原文与注仍在同一段落行上。
 
 ---
 
 ## 数据来源与再分发（发布前必读）
 
-`HistoryLibrary/kanripo/` 是 Kanripo 项目的原始 txt（五部书，118 个文件，共约
-6.5MB）。仓库里**没有**随附 README/LICENSE/版权声明，文件头只有书目元数据，
+`HistoryLibrary/kanripo/` 是 Kanripo 项目的原始 txt（七部书，345 个文件，共约
+14.5MB）。仓库里**没有**随附 README/LICENSE/版权声明，文件头只有书目元数据，
 **无法确认可否再分发** —— 因此按任务书 §23：
 
 - `HistoryProject/.gitignore` 已忽略 `HistoryLibrary/kanripo/`，本仓库**不含**原始语料；
@@ -441,9 +483,46 @@ PYTHONPATH=. PYTHONIOENCODING=utf-8 python -m scripts.site.check_engine \
     --report docs/phase5_consistency.md
 ```
 
-**13 项检查**，含 72 条 URL 路径的静态分发器对拍（`static_api.js` vs `api/main.py`）
-与演示数据集的可用性检查。报告由 harness 自动生成，重跑即覆盖。详见
-[`docs/phase5_consistency.md`](docs/phase5_consistency.md)。
+**14 项检查**，含 72 条 URL 路径的静态分发器对拍（`static_api.js` vs `api/main.py`）、
+演示数据集的可用性检查，以及 `boot.js` 的横幅/页脚冒烟（它要 `document` 与 `fetch`，
+不在引擎文件清单里，引擎对拍覆盖不到，所以单列一条）。报告由 harness 自动生成，
+重跑即覆盖。详见 [`docs/phase5_consistency.md`](docs/phase5_consistency.md)。
+
+## 召回可观测性
+
+```bash
+cd HistoryAI
+PYTHONPATH=. PYTHONIOENCODING=utf-8 python tests/recall.py     # 写 docs/phase6_recall.md
+PYTHONPATH=. PYTHONIOENCODING=utf-8 python tests/recall.py --selftest   # 只验分类器
+```
+
+`tests/search_cases/`（按时代分文件，现 160 例：先秦 83 + 秦汉 77）是唯一测试集；
+`tests/recall.py` 对每条查询跑真实
+检索，把「没命中」**自动归因**到八个维度之一，并对每条命中做 Passage（块文本与库中
+原文逐字对拍）与 Provenance（出处字段齐全）两条机械审计：
+
+| 维度 | 含义 |
+|---|---|
+| `Coverage` | 语料里确实没有这个词 —— 该扩语料，不是引擎问题 |
+| `Search` | 原文在、转换正常，但检索返回 0 —— 引擎问题 |
+| `Normalization` | 只有繁体形能查到 —— 繁简环节问题 |
+| `Ranking` | 有命中，但排到了期望位置之外 |
+| `Display` | 命中了却展示不出来 |
+| `Pagination` | 命中数与片段数、`has_more`、翻页对不上 —— 分页问题 |
+| `Passage` | 返回的正文与库中原文对不上 —— 组装问题 |
+| `Provenance` | 出处字段缺失 —— 追溯不到书/篇/版本/原文件 |
+
+`baseline_hits` / `baseline_blocks` 漂移单列一表：漂移本身不是失败（语料一扩充必然
+变化），但每条都要能解释。块数漂移尤其要看——命中数一个没动而块数全变，是组装逻辑
+动了（第六点一阶段就出现过）。
+
+**判 Coverage 之前必须先把查询词转成繁体再查库**（`normalized_text` 是繁体）：
+拿简体裸查会把「焚書」6 段误判成「语料没有」。分类不出来的一律报 `UNKNOWN` 并列出，
+不静默归入任何一类。已经出过「公开演示站上搜不到楚庄王 → 以为搜索引擎坏了」这次误判，
+这个 harness 就是为了让同类判断不再靠随手试人名。
+
+分类器自身要先通过自检（`--selftest` 注入已知故障，看四类是否各归其位）——
+一个永远全绿的分类器等于没有分类器。
 
 ## 重建演示数据
 

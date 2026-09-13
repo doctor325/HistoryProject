@@ -29,9 +29,16 @@ def _get_map_fn():
         fn.restype = ctypes.c_int
 
         def _impl(text: str, flag: int) -> str | None:
-            n = len(text)
-            if n == 0:
+            if not text:
                 return text
+            # LCMapStringEx 数的是 **UTF-16 码元**，不是 Python 码点。传 len(text)
+            # 会让含 BMP 外字（扩展区字形 𫝊 U+2B74A / 𤣥 U+248E5，文淵閣本
+            # 篇题里就有）的串少读一截：每个非 BMP 字少算 1 个码元，API 只映射到
+            # 第 n 个码元为止，**尾部字符被整段吞掉**。实测 'a𫝊b龍' → 'a𫝊b'（龍
+            # 没了）、'漢書敘𫝊第七十下' → '汉书叙𫝊第七十'（下 没了）。单字时更
+            # 隐蔽：'𫝊' → 一个孤立的代理项 '\ud86d'，长度还是 1，dual_text 的
+            # 「长度不变」闸门根本拦不住，会把非法 Unicode 当成果发出去。
+            n = len(text.encode("utf-16-le")) // 2
             buf = ctypes.create_unicode_buffer(2 * n + 16)
             r = fn(LOCALE_ZH_CN, flag, text, n, buf, 2 * n + 16, None, None, None)
             return buf.value[:r] if r else None

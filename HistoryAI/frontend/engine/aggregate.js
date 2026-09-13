@@ -135,9 +135,13 @@
     }
 
     const hits = picked.map((c) => [c.passage_id, c.file_id, c.row_no, c.seq, c.score]);
+    // 篇名区间表要走同一条路：问答路径不传的话，同一个查询在搜索页与问答页会
+    // 得到**不同的块边界**（史記/國語的正文行没有行级 section，只有区间表能判
+    // 篇界）。与 Python 侧 aggregate 同形。
+    const secIdx = RB.sectionIndex(corpus);
     const blocksRaw = [];
     for (const batch of cluster(hits)) {
-      for (const b of RB.buildResultBlocks(corpus, batch, mode).blocks) blocksRaw.push(b);
+      for (const b of RB.buildResultBlocks(corpus, batch, mode, secIdx).blocks) blocksRaw.push(b);
     }
 
     // 命中 → 打分结果。一个 block 里可能有多个命中（Phase 3 已把区间合并），

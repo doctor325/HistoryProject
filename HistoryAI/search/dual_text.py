@@ -38,11 +38,18 @@ def simplify(text: str) -> dict:
     if not src:
         return {"text": src, "ok": True, "changed": 0}
     out = zh.to_simplified(src)
-    if len(out) != len(src):
+    if len(out) != len(src) or _has_lone_surrogate(out):
         # 长度变了 = 逐字对齐不成立，无法保证「只换了字形」→ 整段回退。
+        # 孤立代理项（U+D800–DFFF 落单）同理：那是**非法 Unicode**，长度可能
+        # 恰好不变（系统映射把非 BMP 字截成一个码元时就是如此），但发出去
+        # 浏览器只能显示「�」。两条都算「这次转换不可靠」。
         return {"text": src, "ok": False, "changed": 0}
     changed = sum(1 for a, b in zip(src, out) if a != b)
     return {"text": out, "ok": True, "changed": changed}
+
+
+def _has_lone_surrogate(s: str) -> bool:
+    return any(0xD800 <= ord(c) <= 0xDFFF for c in s)
 
 
 def attach(block: dict, mode: str = DEFAULT_MODE, src_key: str = "text") -> dict:

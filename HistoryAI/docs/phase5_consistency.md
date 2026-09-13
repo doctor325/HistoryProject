@@ -3,11 +3,11 @@
 > 本文件由 `python -m scripts.site.check_engine --report <本文件>` **自动生成**，
 > 内容就是该次运行的真实输出。重跑即整体覆盖，不存在手工维护的第二份。
 
-- 运行时间：2026-09-11 16:55:17
+- 运行时间：2026-09-12 21:59:47
 - 运行环境：Windows-11-10.0.26200-SP0 / AMD64
 - Python 3.14.0　Node v24.18.0
 - 参照语料：`frontend/data/corpus.json`（32.0 MB；**不发**，仅本机验证用）
-- 结论：**一致** —— 13 项检查中 13 项通过
+- 结论：**一致** —— 14 项检查中 14 项通过
 
 ## 这是什么
 
@@ -40,6 +40,7 @@
 | 11 | `retrieve` | 通过 | ⑪ 提问链路：召回 → 排序 → 聚合（question + query_expansion + ranking + aggregate 端到端） |
 | 12 | `static-api` | 通过 | ⑫ 静态分发器：10 条路由 vs 真 API（Python http vs JS 内存语料） |
 | 13 | `demo-site` | 通过 | ⑬ 演示数据集：公开站的三种模式能否真的跑通（frontend/data-demo） |
+| 14 | `boot` | 通过 | ⑭ boot.js 冒烟：演示模式的横幅与页脚 |
 
 ## 逐项输出
 
@@ -160,32 +161,37 @@
 
 ```text
 ⑨ Result Block：组装 + 展开（Python vs JS）
-   '齊桓公' book=None ed=None p=1/5 standard/orig                命中 96     片段 23    fts     OK
-   '齊桓公' book=None ed=None p=1/5 short/orig                   命中 96     片段 26    fts     OK
-   '齊桓公' book=None ed=None p=1/5 long/orig                    命中 96     片段 18    fts     OK
-   '齊桓公' book=None ed=None p=2/5 standard/orig                命中 96     片段 23    fts     OK
-   '齊桓公' book=None ed=None p=1/20 standard/simplified         命中 96     片段 23    fts     OK
-   '齊桓公' book=None ed=None p=1/20 standard/both               命中 96     片段 23    fts     OK
-   '管仲' book=None ed=None p=1/10 standard/orig                命中 102    片段 31    bigram  OK
+   '齊桓公' book=None ed=None p=1/5 standard/orig                命中 96     片段 73    fts     OK
+   '齊桓公' book=None ed=None p=1/5 short/orig                   命中 96     片段 85    fts     OK
+   '齊桓公' book=None ed=None p=1/5 long/orig                    命中 96     片段 62    fts     OK
+   '齊桓公' book=None ed=None p=2/5 standard/orig                命中 96     片段 73    fts     OK
+   '齊桓公' book=None ed=None p=1/20 standard/simplified         命中 96     片段 73    fts     OK
+   '齊桓公' book=None ed=None p=1/20 standard/both               命中 96     片段 73    fts     OK
+   '管仲' book=None ed=None p=1/10 standard/orig                命中 102    片段 60    bigram  OK
    '管仲是怎么死的' book=None ed=None p=1/5 standard/orig            命中 0      片段 0     fts     OK
    '秦穆公 百里奚' book=None ed=None p=1/10 standard/orig           命中 0      片段 0     fts     OK
-   '齊' book=None ed=None p=1/3 standard/orig                  命中 6079   片段 210   like    OK
-   '之' book=None ed=None p=1/2 short/orig                     命中 33241  片段 330   like    OK
-   '元年。' book=None ed=None p=1/5 standard/orig                命中 1069   片段 10    fts     OK
-   '元年。' book=None ed=None p=3/5 standard/orig                命中 1069   片段 10    fts     OK
-   '大夫' book=None ed=None p=1/5 standard/orig                 命中 1443   片段 329   bigram  OK
-   '王' book=史记 ed=None p=1/5 standard/orig                    命中 8832   片段 1     like    OK
+   '齊' book=None ed=None p=1/3 standard/orig                  命中 6079   片段 3345  like    OK
+   '之' book=None ed=None p=1/2 short/orig                     命中 33241  片段 19072 like    OK
+   '之' book=None ed=None p=7/100 short/orig                   命中 33241  片段 19072 like    OK
+   '元年。' book=None ed=None p=1/5 standard/orig                命中 1069   片段 217   fts     OK
+   '元年。' book=None ed=None p=3/5 standard/orig                命中 1069   片段 217   fts     OK
+   '大夫' book=None ed=None p=1/5 standard/orig                 命中 1443   片段 1116  bigram  OK
+   '王' book=史记 ed=None p=1/5 standard/orig                    命中 8832   片段 1987  like    OK
+   '秦始皇本紀' book=None ed=None p=1/5 standard/orig              命中 0      片段 1     fts     OK
+   '五帝本紀' book=None ed=None p=1/5 standard/orig               命中 1      片段 2     fts     OK
+   '秦本紀' book=None ed=None p=1/5 standard/orig                命中 2      片段 3     fts     OK
+   '公' book=None ed=None p=1/3 standard/orig                  命中 10452  片段 4315  like    OK
    '城濮之战' book=None ed=None p=1/5 standard/orig               命中 1      片段 1     fts     OK
-   '秦穆公' book=史记 ed=None p=1/5 standard/orig                  命中 19     片段 6     fts     OK
+   '秦穆公' book=史记 ed=None p=1/5 standard/orig                  命中 19     片段 18    fts     OK
    '秦穆公' book=None ed=sbck p=1/5 standard/orig                命中 5      片段 5     fts     OK
    '董卓' book=None ed=None p=1/5 standard/orig                 命中 0      片段 0     bigram  OK
    '' book=None ed=None p=1/5 standard/orig                   报错 一致
    '齊桓公' book=None ed=None p=0/5 standard/orig                报错 一致
    '齊桓公' book=None ed=None p=1/5 bogus/orig                   报错 一致
    上下文展开 5 例
-   pid=27152 before/20                                        新增 11   到头部=True 到尾部=None OK
+   pid=27152 before/20                                        新增 20   到头部=False 到尾部=None OK
    pid=27171 after/20                                         新增 20   到头部=None 到尾部=False OK
-   pid=27174 both/20                                          新增 26   到头部=True 到尾部=False OK
+   pid=27174 both/20                                          新增 40   到头部=False 到尾部=False OK
    pid=66817 before/3                                         新增 3    到头部=False 到尾部=None OK
    pid=66827 after/100                                        新增 100  到头部=None 到尾部=False OK
    Result Block 一致
@@ -195,15 +201,15 @@
 
 ```text
 ⑩ 事件聚合：block → 事件 → 跨史书对照（Python vs JS）
-   '齊桓公' standard/orig                候选  45  事件 13  片段  29  史书 2  首事件 春秋左傳 OK
-   '重耳' standard/orig                 候选  45  事件 15  片段  22  史书 2  首事件 春秋左傳 OK
-   '管仲' standard/orig                 候选  45  事件 12  片段  21  史书 2  首事件 春秋左傳 OK
-   '管仲是怎么死的' standard/orig            候选  45  事件 19  片段  26  史书 4  首事件 春秋左傳 OK
-   '秦穆公和百里奚是什么关系' standard/orig       候选  45  事件 16  片段  37  史书 4  首事件 史記 OK
-   '城濮之战' standard/orig               候选  31  事件 20  片段  29  史书 4  首事件 春秋左傳 OK
+   '齊桓公' standard/orig                候选  45  事件 18  片段  30  史书 2  首事件 春秋左傳 OK
+   '重耳' standard/orig                 候选  45  事件 16  片段  24  史书 2  首事件 春秋左傳 OK
+   '管仲' standard/orig                 候选  45  事件 15  片段  24  史书 2  首事件 春秋左傳 OK
+   '管仲是怎么死的' standard/orig            候选  45  事件 20  片段  28  史书 4  首事件 春秋左傳 OK
+   '秦穆公和百里奚是什么关系' standard/orig       候选  45  事件 30  片段  37  史书 4  首事件 史記 OK
+   '城濮之战' standard/orig               候选  31  事件 22  片段  30  史书 4  首事件 春秋左傳 OK
    '董卓' standard/orig                 候选   0  事件  0  片段   0  史书 0  首事件 — OK
-   '齊桓公' short/orig                   候选  45  事件 13  片段  34  史书 2  首事件 春秋左傳 OK
-   '齊桓公' long/both                    候选  45  事件 11  片段  24  史书 2  首事件 春秋左傳 OK
+   '齊桓公' short/orig                   候选  45  事件 18  片段  36  史书 2  首事件 春秋左傳 OK
+   '齊桓公' long/both                    候选  45  事件 18  片段  25  史书 2  首事件 春秋左傳 OK
    事件聚合 一致
 ```
 
@@ -211,16 +217,16 @@
 
 ```text
 ⑪ 提问链路：召回 → 排序 → 聚合（question + query_expansion + ranking + aggregate 端到端）
-   '齐桓公是怎么死的？' standard/orig      候选  449/0    事件  15  史书 3  note 1  OK
-   '管仲是怎么死的？' standard/orig       候选  222/0    事件  19  史书 4  note 1  OK
-   '重耳流亡' standard/orig           候选  574/0    事件  22  史书 3  note 1  OK
-   '商鞅变法' standard/orig           候选   54/0    事件   9  史书 2  note 1  OK
-   '秦穆公和百里奚' standard/orig        候选  224/0    事件  16  史书 4  note 2  OK
-   '管仲和鲍叔牙' standard/orig         候选  249/0    事件  27  史书 4  note 2  OK
-   '城濮之战' standard/orig           候选    0/31   事件  20  史书 4  note 2  OK
+   '齐桓公是怎么死的？' standard/orig      候选  449/0    事件  23  史书 3  note 1  OK
+   '管仲是怎么死的？' standard/orig       候选  222/0    事件  20  史书 4  note 1  OK
+   '重耳流亡' standard/orig           候选  574/0    事件  23  史书 3  note 1  OK
+   '商鞅变法' standard/orig           候选   54/0    事件  15  史书 2  note 1  OK
+   '秦穆公和百里奚' standard/orig        候选  224/0    事件  30  史书 4  note 2  OK
+   '管仲和鲍叔牙' standard/orig         候选  249/0    事件  23  史书 4  note 2  OK
+   '城濮之战' standard/orig           候选    0/31   事件  22  史书 4  note 2  OK
    '董卓' standard/orig             候选    0/0    事件   0  史书 0  note 3  OK
-   '齊桓公' long/both                候选  449/0    事件  11  史书 2  note 1  OK
-   '管仲是怎么死的？' short/simplified    候选  222/0    事件  20  史书 4  note 1  OK
+   '齊桓公' long/both                候选  449/0    事件  18  史书 2  note 1  OK
+   '管仲是怎么死的？' short/simplified    候选  222/0    事件  21  史书 4  note 1  OK
    '' standard/orig               候选    0/0    事件   0  史书 0  note 3  OK
    扫描 ['之']                      limit=2000  命中  2000  首/末 6/6805 OK
    扫描 ['不']                      limit=1500  命中  1500  首/末 11/10370 OK
@@ -281,26 +287,26 @@
    /api/blocks/1                                                                  错误体一致 OK
    /api/blocks/99999999                                                           错误体一致 OK
    /api/search                                                                    错误体一致 OK
-   /api/search?q=%E9%BD%8A%E6%A1%93%E5%85%AC                                      57631 B OK
+   /api/search?q=%E9%BD%8A%E6%A1%93%E5%85%AC                                      74122 B OK
    /api/search?q=%E9%BD%8A%E6%A1%93%E5%85%AC&level=passage                        14130 B OK
    /api/search?q=%E9%BD%8A%E6%A1%93%E5%85%AC&level=passage&page=2&page_size=5     3591 B OK
    /api/search?q=%E9%BD%8A%E6%A1%93%E5%85%AC&level=passage&page=0                 错误体一致 OK
-   /api/search?q=%E9%BD%8A%E6%A1%93%E5%85%AC&mode=short&text=simplified           28722 B OK
-   /api/search?q=%E9%BD%8A%E6%A1%93%E5%85%AC&mode=long&text=both&page_size=3      30832 B OK
-   /api/search?q=%E9%BD%8A%E6%A1%93%E5%85%AC&book=KR1b0001                        402 B OK
-   /api/search?q=%E9%BD%8A%E6%A1%93%E5%85%AC&edition=tls                          55679 B OK
+   /api/search?q=%E9%BD%8A%E6%A1%93%E5%85%AC&mode=short&text=simplified           31996 B OK
+   /api/search?q=%E9%BD%8A%E6%A1%93%E5%85%AC&mode=long&text=both&page_size=3      29443 B OK
+   /api/search?q=%E9%BD%8A%E6%A1%93%E5%85%AC&book=KR1b0001                        449 B OK
+   /api/search?q=%E9%BD%8A%E6%A1%93%E5%85%AC&edition=tls                          74044 B OK
    /api/search?q=%E5%A4%A7%E5%A4%AB&level=passage                                 13870 B OK
    /api/search?q=%E5%85%83%E5%B9%B4%E3%80%82&level=passage&page_size=3            2251 B OK
    /api/search?q=%E7%8E%8B&level=passage&book=KR1b0001                            14083 B OK
-   /api/search?q=%E8%91%A3%E5%8D%93                                               391 B OK
+   /api/search?q=%E8%91%A3%E5%8D%93                                               438 B OK
    /api/search?q=&level=passage                                                   错误体一致 OK
    /api/search?q=%E9%BD%8A%E6%A1%93%E5%85%AC&level=bogus                          错误体一致 OK
-   /api/search?q=%E9%BD%8A%E6%A1%93%E5%85%AC&page_size=abc                        57631 B OK
-   /api/search?q=a+b                                                              361 B OK
-   /api/search?q=%E9%BD%8A%E6%A1%93%E5%85%AC%E6%98%AF%E6%80%8E%E4%B9%88%E6%AD%BB% 111159 B OK
-   /api/search?q=%E9%BD%8A%E6%A1%93%E5%85%AC%E6%98%AF%E6%80%8E%E4%B9%88%E6%AD%BB% 201644 B OK
-   /api/search?q=%E7%AE%A1%E4%BB%B2%E6%98%AF%E6%80%8E%E4%B9%88%E6%AD%BB%E7%9A%84% 66357 B OK
-   /api/search?q=%E5%9F%8E%E6%BF%AE%E4%B9%8B%E6%88%98&level=question              93140 B OK
+   /api/search?q=%E9%BD%8A%E6%A1%93%E5%85%AC&page_size=abc                        74122 B OK
+   /api/search?q=a+b                                                              408 B OK
+   /api/search?q=%E9%BD%8A%E6%A1%93%E5%85%AC%E6%98%AF%E6%80%8E%E4%B9%88%E6%AD%BB% 122091 B OK
+   /api/search?q=%E9%BD%8A%E6%A1%93%E5%85%AC%E6%98%AF%E6%80%8E%E4%B9%88%E6%AD%BB% 230093 B OK
+   /api/search?q=%E7%AE%A1%E4%BB%B2%E6%98%AF%E6%80%8E%E4%B9%88%E6%AD%BB%E7%9A%84% 69574 B OK
+   /api/search?q=%E5%9F%8E%E6%BF%AE%E4%B9%8B%E6%88%98&level=question              94782 B OK
    /api/search?q=%E8%91%A3%E5%8D%93&level=question                                1702 B OK
    /api/search?q=&level=question                                                  错误体一致 OK
    /api/search?q=%E9%BD%8A%E6%A1%93%E5%85%AC&level=question&mode=bogus            错误体一致 OK
@@ -314,7 +320,7 @@
 
 ```text
 ⑬ 演示数据集：公开站的三种模式能否真的跑通（frontend/data-demo）
-   ① 10 条路由应答无错（25 条路径） OK
+   ① 10 条路由应答无错（26 条路径） OK
       错误契约：/api/nope → unknown api path OK
    ② stats 计数（2 书 / 4 文件 / 84 记录，实得 2/4/84） OK
       泄漏闸门：/api/stats 不含本机语料库路径 OK
@@ -324,13 +330,22 @@
       检索路径 齊（1 字）→ like（实得 like） OK
       检索路径 重耳（2 字）→ bigram（实得 bigram） OK
       检索路径 齊桓公（3 字）→ fts（实得 fts） OK
-   ④ Result Block 字段齐备（缺 []；n_passages=8） OK
+   ④ Result Block 字段齐备（缺 []；n_passages=5） OK
    ⑤ 提问：实体 ['管仲'] / 意图 ['death'] OK
       提问：聚合出 3 个事件 / 14 条命中 OK
       别名扩展：[['亡', '卒', '卒之岁', '卒之歲', '卒于', '卒於', '夷吾', '崩', '弑', '死', '死于', '死於', '歿', '殁', '殺', '沒', '管仲', '管夷吾', '管子', '終', '薨']] OK
    ⑥ 原文对照：51 行，标注含「·(并入上块)」 OK
       原文对照：标注含「文件头」与 page 层 OK
    ⑦ 待确认注释：演示樣例·乙 pending=14，文件 3 的 kind_layer_counts 含 pending_commentary=True OK
-   ⑧ 泄漏闸门：出现的书名 ['演示樣例·乙', '演示樣例·甲'] 全部是演示书 OK
-   25 条路径；全部通过
+   ⑨ 篇名检索「齊語」：1 块，match_type=['section'] OK
+      篇名回填：块的 section 字段非空（齊語） OK
+   ⑩ 泄漏闸门：出现的书名 ['演示樣例·乙', '演示樣例·甲'] 全部是演示书 OK
+   26 条路径；全部通过
+```
+
+### 14. `boot`
+
+```text
+⑭ boot.js 冒烟：演示模式的横幅与页脚
+   _site 尚未装配，跳过 —— 先跑 python -m scripts.site.build_artifact _site
 ```

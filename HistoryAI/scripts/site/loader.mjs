@@ -62,7 +62,70 @@ export function loadCorpus(path) {
  *  dir 是**文件系统路径**（不需要 file:// URL）。 */
 export function loadStaticData(dir, NS = loadEngine()) {
   const read = (f) => JSON.parse(fs.readFileSync(path.join(dir, f), "utf8"));
-  return new NS.Corpus(read("corpus.json"), read("books.json"), read("files.json"));
+  // sections.json 可缺省：旧的数据目录里没有它（与 boot.js 的 loadJsonOr 同口径）。
+  const sections = fs.existsSync(path.join(dir, "sections.json"))
+    ? read("sections.json") : [];
+  return new NS.Corpus(read("corpus.json"), read("books.json"),
+                       read("files.json"), sections);
+}
+
+/** 按浏览器的方式启动 boot.js，返回它判定出的模式与它写进 DOM 的文字。
+ *
+ *  boot.js 是浏览器专有的（要 document / fetch），所以不在 ENGINE_FILES 里，
+ *  引擎一致性对拍覆盖不到它。但「本站不含真实史料，搜不到真实人名是正常的」
+ *  这条提示只由它发出 —— 历史上正是缺这句话，才有人把公开演示站的空结果
+ *  误读成「搜索引擎有问题」。所以单独给它一个冒烟检查。
+ *
+ *  dir 是数据目录的**文件系统路径**；apiUp=true 时假装本地 API 在跑。
+ */
+export function loadSiteBoot(dir, { apiUp = false } = {}) {
+  const els = {};
+  const mk = (id) => (els[id] = {
+    id, innerHTML: "", className: "", hidden: true,
+    classList: { add() {}, remove() {} },
+  });
+  const banner = mk("modeBanner");
+  mk("view");
+  mk("statsMini");
+  const footer = { innerHTML: "" };
+
+  const document = {
+    getElementById: (id) => els[id] || null,
+    querySelector: (sel) => (sel === "footer" ? footer : null),
+    body: { classList: { add() {}, remove() {} } },
+    addEventListener() {},
+  };
+
+  const mkRes = (status, body) => ({
+    ok: status >= 200 && status < 300,
+    status,
+    json: async () => JSON.parse(body),
+    text: async () => body,
+  });
+  const fetchStub = async (url) => {
+    const clean = String(url).replace(/^\//, "");
+    if (apiUp && clean === "api/stats") {
+      return mkRes(200, JSON.stringify({ books: 1, files: 1, records: 1 }));
+    }
+    try {
+      return mkRes(200, fs.readFileSync(path.join(dir, clean), "utf8"));
+    } catch (e) {
+      return mkRes(404, "not found");   // 演示站上 /api/* 就是 404，正是降级信号
+    }
+  };
+
+  const ctx = vm.createContext({ window: {}, document, fetch: fetchStub, console });
+  for (const f of ENGINE_FILES) {
+    vm.runInContext(fs.readFileSync(new URL(f, ENGINE_DIR), "utf8"), ctx,
+                    { filename: "engine/" + f });
+  }
+  const boot = new URL("../../frontend/boot.js", import.meta.url);
+  vm.runInContext(fs.readFileSync(boot, "utf8"), ctx, { filename: "boot.js" });
+  return ctx.window.HistoryAIBoot.then((r) => ({
+    mode: r.mode, dir: r.dir, kind: r.kind || null, error: r.error || null,
+    banner: banner.innerHTML, bannerClass: banner.className,
+    bannerHidden: banner.hidden, footer: footer.innerHTML,
+  }));
 }
 
 /** 码位数（不是 UTF-16 单元数），对应 Python 的 len()。 */

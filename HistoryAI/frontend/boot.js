@@ -63,6 +63,20 @@
     return r.json();
   }
 
+  /** 可缺省的数据文件：取不到就用 fallback。
+   *
+   *  用在**后加的**文件上（sections.json 是第六点一阶段才有的）。已有的数据目录
+   *  （比如线上那份、别人 clone 下来的旧 data/）里没有它，硬失败会让整个站点
+   *  在「升级了代码、还没重新导出数据」时无法启动。缺了它篇名检索就退化成
+   *  「没有篇名数据」，而不是整站打不开。 */
+  async function loadJsonOr(url, fallback) {
+    try {
+      return await loadJson(url);
+    } catch (e) {
+      return fallback;
+    }
+  }
+
   function banner(text, kind) {
     const el = document.getElementById("modeBanner");
     if (!el) return;
@@ -92,12 +106,14 @@
 
     loadMsg(`正在载入${pick.kind === "demo" ? "演示" : ""}语料…`);
     const base = pick.dir;
-    const [stats, books, files, bookFiles, corpus] = await Promise.all([
+    const [stats, books, files, bookFiles, corpus, sections] = await Promise.all([
       loadJson(base + "stats.json"), loadJson(base + "books.json"),
       loadJson(base + "files.json"), loadJson(base + "book_files.json"),
       loadJson(base + "corpus.json"),
+      // 篇名区间表：后加的文件，旧数据目录里没有（见 loadJsonOr）。
+      loadJsonOr(base + "sections.json", []),
     ]);
-    const c = new NS.Corpus(corpus, books, files);
+    const c = new NS.Corpus(corpus, books, files, sections);
     const site = new NS.staticApi.Site({
       corpus: c, books, files, bookFiles, stats,
       // 原文对照是**按需**取：整份 raw 目录几十 MB，不能进启动路径。
@@ -113,10 +129,21 @@
     NS.site = site;
 
     if (pick.kind === "demo") {
-      banner("公开演示模式 · 本公开站**不包含真实史料**：为了能公开分发，"
-             + "检索用的是一份自制的演示样例（MIT，见 "
+      // 这条横幅要说清「边界」和「误判」两件事。
+      // 第六阶段就是这么被误判的：在公开站搜「楚庄王」是空的，于是断定搜索引擎
+      // 有问题——而真实语料里楚庄王有 41 段。空的原因是本站根本没有真实史料。
+      // 光说「不含真实史料」不够，必须点破那个错误推论：搜不到真实人名是正常的。
+      banner("公开演示模式 · 本站<strong>不含任何真实史料</strong>，所以"
+             + "<strong>搜不到「秦始皇」「楚庄王」这类真实人名是正常的</strong>，"
+             + "不是检索故障。检索用的是一份自制的演示样例（MIT，见 "
              + "<span class='mono'>data-demo/</span>）。"
-             + "真实语料不随本站发布。", "demo");
+             + "真实史料检索请<a href='https://github.com/doctor325/HistoryProject"
+             + "/blob/main/HistoryAI/README.md'>在本地部署完整版</a>。", "demo");
+      // 页脚那行列出的是真实书目，演示模式下它是假的——不换掉就是在误导。
+      const foot = document.querySelector("footer");
+      if (foot) {
+        foot.innerHTML = "本站为公开演示，数据是自制样例（MIT），不含真实史料";
+      }
     } else {
       banner("本地静态模式 · 数据来自 <span class='mono'>frontend/data/</span>"
              + "（本机导出，未经过 Python API）。", "local");

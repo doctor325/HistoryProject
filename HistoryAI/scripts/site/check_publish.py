@@ -56,6 +56,7 @@ ALLOWED_FILES = {
     "engine/static_api.js",
     "data-demo/stats.json", "data-demo/books.json", "data-demo/files.json",
     "data-demo/book_files.json", "data-demo/corpus.json",
+    "data-demo/sections.json",
     "data-demo/raw/1.json", "data-demo/raw/2.json",
     "data-demo/raw/3.json", "data-demo/raw/4.json",
 }
@@ -67,7 +68,9 @@ MAX_BYTES = 1 << 20
 
 # 真实语料的书名。它们出现在 `book_title` 之类**字段**里就是泄露；
 # 出现在 index.html 的页脚文案里是正常的（那是项目介绍，不是数据）。
-REAL_TITLES = {"尚書", "春秋左傳", "史記", "國語", "戰國策"}
+# 第六点二阶段加入 前漢書/後漢書（WYG 底本）——名单不跟着语料长大，闸门对新加
+# 的书就是形同虚设。
+REAL_TITLES = {"尚書", "春秋左傳", "史記", "國語", "戰國策", "前漢書", "後漢書"}
 
 
 def check_file_set(root: Path) -> list[str]:
@@ -150,6 +153,15 @@ def check_text_is_demo(root: Path, allowed: list[str]) -> tuple[list[str], int]:
             if not is_demo(str(ln.get("text", ""))):
                 bad.append(f"{p.name} 第 {ln.get('no')} 行非演示正文："
                            f"{str(ln.get('text'))[:60]}")
+
+    # 篇名区间表是第三个载体：它进的是**检索路径**（篇名命中直接产出结果块），
+    # 一个真实篇名混进来，演示站上就能搜到它。所以它必须和正文一样逐条反查。
+    sections = root / "data-demo" / "sections.json"
+    if sections.exists():
+        for s in json.loads(sections.read_text(encoding="utf-8")):
+            n_piece += 1
+            if not is_demo(str(s.get("label", ""))):
+                bad.append(f"篇名区间表里有非演示篇名：{str(s.get('label'))[:60]}")
     return bad, n_piece
 
 

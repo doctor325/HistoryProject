@@ -66,14 +66,51 @@ def classify_comment_line(line: str) -> tuple[str, dict | None]:
 
 # ------------------------------------------------------------ 文件层默认
 
+# 文件内分段（部分）段名 → 语义层。
+#
+# 段名有两个来源，都取自 kanripo 自己的属性行（不是我们的猜测）：
+#   `#+PROPERTY: FILE SB02n0044-000戰國策校注-序.` → 取最后一段 `序`（SBCK 系）
+#   `#+PROPERTY: JUAN 卷一上考證`                  → 整值（WYG 系）
+#
+# WYG 的一卷正文之后紧接同一卷的「考證」（校勘記），所以一个文件里 JUAN 会切换
+# 四次（卷一上/卷一上考證/卷一下/卷一下考證）；`卷一上` 这种认不出层的值必须
+# **把层还原成文件默认**，否则考證段之后的正文会一路带着 appendix 走到底。
+#
+# 判定按关键词包含、不按全等（WYG 的段名带卷次），顺序从具体到笼统：
+# `敘例考證` 必须先中 考證（appendix）而不是 敘例（preface）。
+PART_LAYER_RULES = (
+    ("考證", "appendix"), ("考証", "appendix"), ("箚子", "appendix"),
+    ("敘例", "preface"), ("叙例", "preface"), ("凡例", "preface"),
+    ("御製", "preface"), ("御制", "preface"), ("提要", "preface"),
+    ("自序", "preface"),
+    ("目録", "toc"), ("目录", "toc"), ("目錄", "toc"),
+    ("後跋", "backmatter"), ("跋", "backmatter"),
+    ("序", "preface"), ("叙", "preface"), ("敘", "preface"),
+)
+
+
+def part_layer_of(label: str | None) -> str | None:
+    """段名 → 语义层；认不出返回 None（调用方还原成文件层默认）。"""
+    if not label:
+        return None
+    t = label.strip().strip("[]")
+    for key, layer in PART_LAYER_RULES:
+        if key in t:
+            return layer
+    return None
+
+
 def file_layer_defaults(book_dir: str, file_no: int | None, family: str | None,
                         metadata: dict) -> tuple[str, str, str]:
     """按文件级证据给出默认 layer/status，返回 (layer, status, note)。
 
     证据优先级：
-    1. 显式例外表（已人工确认的五书特例，集中在此，不做散落的 if 分支）
-    2. SBCK 族 _000 且 FILE 含“序”→ preface（國語解敘 / 戰國策序 均如此）
-    3. 默认正文 main（tls/sbck 正文文件）；拿不准 → unknown
+    1. 显式例外表（已人工确认的特例，集中在此，不做散落的 if 分支）
+    2. WYG 族：首段名（`#+PROPERTY: JUAN`）自己就说明了这一文件是什么
+       —— 御製詩/提要/自序 → preface，考證跋語/箚子 → appendix，`卷N` → 正文。
+       实测 227 个文件全部据此判对，无需逐本登记（§13）。
+    3. SBCK 族 _000 且 FILE 含“序”→ preface（國語解敘 / 戰國策序 均如此）
+    4. 默认正文 main（tls/sbck/wyg 正文文件）；拿不准 → unknown
     """
     # (dir_name, file_no) -> (layer, status, note)  人工确认过的特例
     overrides = {
@@ -87,6 +124,13 @@ def file_layer_defaults(book_dir: str, file_no: int | None, family: str | None,
     if key in overrides:
         return overrides[key]
 
+    if family == "wyg":
+        juan = (metadata or {}).get("JUAN")
+        layer = part_layer_of(juan)
+        if layer:
+            return (layer, "ok", f"WYG 首段名「{juan}」")
+        # `卷一上` / `卷二` 之类：正常卷正文
+        return ("main", "ok", "WYG 卷正文")
     if family == "sbck" and file_no == 0:
         return ("preface", "pending_section", "SBCK 首文件疑为序（未在例外表确认）")
     if family in ("tls", "sbck"):

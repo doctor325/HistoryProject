@@ -128,6 +128,8 @@ mark.hl { background: #f3dc9a; }
 .chip.structure { background: #e9e6f2; color: #4d4a8c; }
 .chip.page { background: #e3eef2; color: #2f6470; }
 .chip.kr { background: #f4d9cf; color: #96391f; }
+.chip.warn { background: #f7ead0; color: #8a6420; border-color: #e8d3a6; }
+.chip.fail { background: #f4d9cf; color: #96391f; border-color: #e6bfae; }
 .pbmark { color: var(--ok); font-size: 11px; opacity: .8; }
 .para { color: var(--line); }
 .wrap-cand { color: var(--cand); }
@@ -196,6 +198,13 @@ details.card > summary:hover { color: var(--accent); }
   display: inline-flex; align-items: center; justify-content: center; }
 .eventcard .card.blk { border-left: none; }
 /* 简体行：字形不同但同源，用浅色区分，不做任何「更正确」的暗示 */
+/* ---------- 阅读全文页（#/read/） ----------
+ * 与结果片段同一套正文排版（同样的字号/行高/断行），但整页连续读：记录之间
+ * 不换行、不加边框 —— 记录边界是解析层的切分，不是文本的分段，读者不需要看见。 */
+.read-body { font-family: var(--serif); font-size: 18px; line-height: 2.05;
+  word-break: break-all; margin: 10px 0 20px; }
+.read-anchor { background: #f7ecc4; border-radius: 4px; box-shadow: 0 0 0 3px #f7ecc4; }
+
 .blk-text.simple { font-size: 16.5px; color: #4a4a52; background: #f7f4ea;
   border-radius: 8px; padding: 6px 10px; margin-top: 2px; }
 .dualtag { font-family: var(--sans, inherit); font-size: 11px; color: var(--ink2);
@@ -208,6 +217,10 @@ details.card > summary:hover { color: var(--accent); }
   border-radius: 6px; background: var(--paper2); color: var(--ink2);
   font-size: 13px; line-height: 1.6;
 }
-.modebanner.demo { border-left-color: var(--accent); background: #f5e7dd; color: #6d3a2c; }
+/* 演示模式横幅常驻吸顶：误判发生在「搜一个人名，结果是空的」那一刻，
+   横幅在页顶会被滚过去。这条提示必须和搜索动作同时在场。 */
+.modebanner.demo { border-left-color: var(--accent); background: #f5e7dd; color: #6d3a2c;
+  position: sticky; top: 0; z-index: 20; margin-top: 0; }
 .modebanner.warn { border-left-color: var(--cand); background: #efe6f2; color: #563a6b; }
 .modebanner .mono { font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
+.modebanner a { color: inherit; text-decoration: underline; }

@@ -55,6 +55,11 @@ CREATE TABLE passages_fts (passage_id UNINDEXED);
 -- _src_paragraph（同一个函数）从 passages.source_ref_json 派生，口径一致。
 CREATE TABLE src_paragraphs (file_id INTEGER, row_no INTEGER, paragraph_code TEXT);
 CREATE INDEX idx_srcpara ON src_paragraphs(file_id, row_no);
+-- 第六点一阶段：篇名区间表。`passages.section` 只标在标题行上、不向下传播，
+-- 归属关系在这里（first_row 起，到同文件下一个 first_row 为止）。
+CREATE TABLE sections (
+  section_id INTEGER PRIMARY KEY AUTOINCREMENT, book_id TEXT, file_id INTEGER,
+  label TEXT, division TEXT, first_row INTEGER, status TEXT);
 """
 
 
@@ -65,8 +70,11 @@ def _p(pid, fid, row, seq, text, kind="passage", layer="main",
             subsection, None, ab, text, text, src, None, pb_page, pb_side)
 
 
-def make_db(rows, files=None, books=None):
-    """内存库：只放组装需要的表与列（引擎不参与，命中直接给）。"""
+def make_db(rows, files=None, books=None, sections=None):
+    """内存库：只放组装需要的表与列（引擎不参与，命中直接给）。
+
+    sections 是 [(file_id, label, first_row[, division])]，book_id 由 files 表推。
+    """
     conn = sqlite3.connect(":memory:")
     conn.row_factory = sqlite3.Row
     conn.executescript(SCHEMA)
@@ -76,6 +84,14 @@ def make_db(rows, files=None, books=None):
                      (r[0], "KR1e0001", r[1], r[0], f"kanripo/{r[1]}.txt"))
     for r in books or []:
         conn.execute("INSERT INTO books VALUES (?,?,?,?)", r)
+    for s in sections or []:
+        fid, label, first = s[0], s[1], s[2]
+        div = s[3] if len(s) > 3 else None
+        bid = conn.execute("SELECT book_id FROM files WHERE file_id = ?",
+                           (fid,)).fetchone()[0]
+        conn.execute("INSERT INTO sections (book_id, file_id, label, division,"
+                     " first_row, status) VALUES (?,?,?,?,?,'ok')",
+                     (bid, fid, label, div, first))
     conn.executemany(
         "INSERT INTO passages VALUES (" + ",".join("?" * 19) + ")", rows)
     # 段号窄表：与建库侧同一条规则（_src_paragraph），只不过数据源是合成库
@@ -277,6 +293,247 @@ class TestResultBlockUnit(unittest.TestCase):
         self.assertFalse(b2["more_after"])
 
 
+# --------------------------------------------------------------- 篇名检索
+
+FILLER = "其言曰，古之為道者，貴一而賤萬，故能成其大。" * 3       # 每行约 66 字
+# 篇名区间要**隔得开**：同文件里两篇的开头若落在同一屏（standard 900 字）内，
+# 组装时会被合并成一块——那是真实且正确的行为（一片里连着两篇开头），但验不到
+# 「篇名命中」的排序与归属。所以这里每行给足 264 字，一行就顶掉近三分之一的屏。
+FILLER_LONG = "其言曰，古之為道者，貴一而賤萬，故能成其大。" * 12
+
+
+def section_db():
+    """合成一文件五篇：标题行有 section 值，正文行 section 为 NULL。
+
+    这正是真实史記/國語的样子——`passages.section` 只标在标题行上、不向下传播，
+    所以「这一段的篇名是什么」必须从 sections.first_row 区间推。
+
+    正文行一律用不含任何篇名的填充文字，好让「篇名命中」单独可测；篇名与正文
+    撞车的情形另由 dedup_db() 造。
+    """
+    rows, secs, r = [], [], 1
+    for label in ("五帝本紀", "夏本紀", "秦本紀", "秦始皇本紀", "禮書"):
+        rows.append(_p(r, 1, r, 0, label + "第", kind="heading", section=label))
+        secs.append((1, label, r))                   # 区间从标题行起
+        r += 1
+        for _ in range(8):
+            rows.append(_p(r, 1, r, 0, FILLER_LONG))
+            r += 1
+    return make_db(rows, files=[(1, "f1")], sections=secs)
+
+
+def dedup_db():
+    """篇名出现在**别的篇的正文里**：五帝本紀 的正文提到「夏本紀」这个篇名。
+
+    这个夹具在第六点二阶段**换了含义**，值得写下来：修复前正文块不受篇界约束、
+    一路合并到装够字数为止，于是它跨过 row 5 的篇题、把 夏本紀 的篇首也吞进去，
+    篇名锚点正好落在块里 → 去重逻辑把它标成 `both`。那时这条用例是绿的，绿在
+    **一个跨篇界的块**上（正是 §24–26 要消灭的东西）。修复后两者各归各篇：
+    正文块停在 五帝本紀 末行，篇名块单独列出，谁也不是 `both`。
+    """
+    rows = [
+        _p(1, 1, 1, 0, "五帝本紀第一", kind="heading", section="五帝本紀"),
+        _p(2, 1, 2, 0, FILLER),
+        _p(3, 1, 3, 0, "夏本紀云云，此處言及篇名。" + FILLER),
+        _p(4, 1, 4, 0, FILLER),
+        _p(5, 1, 5, 0, "夏本紀第二", kind="heading", section="夏本紀"),
+        _p(6, 1, 6, 0, "夏禹，名曰文命。" + FILLER),
+        _p(7, 1, 7, 0, FILLER),
+    ]
+    return make_db(rows, files=[(1, "f1")],
+                   sections=[(1, "五帝本紀", 1), (1, "夏本紀", 5)])
+
+
+def dedup_same_section_db():
+    """篇名出现在**自己这一篇的正文里**，且就在篇首锚点行上。
+
+    这才是 `both` 的本义：这一块既是「夏本紀」这个篇名的命中点，又含正文命中。
+    """
+    rows = [
+        _p(1, 1, 1, 0, "五帝本紀第一", kind="heading", section="五帝本紀"),
+        _p(2, 1, 2, 0, FILLER),
+        _p(3, 1, 3, 0, FILLER),
+        _p(4, 1, 4, 0, FILLER),
+        _p(5, 1, 5, 0, "夏本紀第二", kind="heading", section="夏本紀"),
+        _p(6, 1, 6, 0, "夏本紀云云，此處言及篇名。" + FILLER),
+        _p(7, 1, 7, 0, FILLER),
+    ]
+    return make_db(rows, files=[(1, "f1")],
+                   sections=[(1, "五帝本紀", 1), (1, "夏本紀", 5)])
+
+
+class TestSectionMatchUnit(unittest.TestCase):
+    """篇名命中、去重、match_type、上限——都在合成库上钉死。"""
+
+    def search(self, conn, q, mode="standard", page_size=100):
+        return RB.search_result_blocks(conn.cursor(), q, None, None, 1,
+                                       page_size, mode)
+
+    def setUp(self):
+        self.conn = section_db()
+
+    def test_section_hit_anchors_at_first_body_row(self):
+        """锚点是区间内**首条正文**，不是标题行——标题行不进片段正文。"""
+        d = self.search(self.conn, "夏本紀")
+        sec = [b for b in d["results"] if b["match_type"] == "section"]
+        self.assertTrue(sec, "篇名「夏本紀」应当有篇名命中")
+        b = sec[0]
+        self.assertEqual(b["section"], "夏本紀")
+        self.assertEqual(b["row_first"], 11)           # 10 是标题行，正文从 11 起
+        self.assertNotIn("夏本紀第", b["text"])        # 标题不进正文
+
+    def test_section_label_backfills_text_block(self):
+        """正文行的 section 列是 NULL，块的 section 由区间推出来（否则读不出「哪一篇」）。"""
+        d = self.search(self.conn, "古之為道者")
+        self.assertTrue(d["results"])
+        self.assertNotIn("夏本紀", d["results"][0]["text"])
+        self.assertIn(d["results"][0]["section"],
+                      {"五帝本紀", "夏本紀", "秦本紀", "秦始皇本紀"})
+
+    def test_section_hits_read_in_book_order(self):
+        """「本紀」命中四篇，展示按书中行序——一篇篇顺着读，不按匹配度跳。"""
+        d = self.search(self.conn, "本紀")
+        labels = [b["section"] for b in d["results"]]
+        self.assertEqual(labels, ["五帝本紀", "夏本紀", "秦本紀", "秦始皇本紀"])
+        self.assertTrue(all(b["match_type"] == "section" for b in d["results"]),
+                        "篇名不在正文里，不该出现正文命中")
+
+    def test_text_hits_come_before_section_hits(self):
+        """§6：正文命中排在篇名命中之前。"""
+        d = self.search(dedup_db(), "夏本紀")
+        rank = {"text": 0, "both": 1, "section": 2}
+        kinds = [b["match_type"] for b in d["results"]]
+        self.assertEqual(kinds, sorted(kinds, key=lambda k: rank[k]))
+
+    def test_section_dedup_marks_both_without_duplicate(self):
+        """篇名块与正文块撞在同一条记录上 → 合成一块并标 both，不出现重复 Passage。"""
+        d = self.search(dedup_same_section_db(), "夏本紀")
+        both = [b for b in d["results"] if b["match_type"] == "both"]
+        self.assertEqual(len(both), 1, "「夏本紀」既是篇名又是正文，应当正好一块标 both")
+        pids = [p for b in d["results"] for p in b["passage_ids"]]
+        self.assertEqual(len(pids), len(set(pids)), "跨块出现重复的 passage")
+
+    def test_section_dedup_does_not_bridge_two_sections(self):
+        """篇名出现在**别篇**正文里：不合并成 both，正文块也不许跨过篇题。
+
+        第六点二阶段跨篇界修复的正向断言（合成数据版）：修复前两个块被合成一个
+        跨篇界的块，修复后各归各篇。
+        """
+        d = self.search(dedup_db(), "夏本紀")
+        self.assertEqual([b["match_type"] for b in d["results"]], ["text", "section"])
+        text, sec = d["results"]
+        self.assertEqual((text["row_first"], text["row_last"]), (2, 4),
+                         "正文块应当停在 五帝本紀 的末行，不吞掉下一篇的篇首")
+        self.assertEqual(text["section"], "五帝本紀")
+        self.assertEqual(sec["section"], "夏本紀")
+        self.assertEqual(sec["row_first"], 6)
+
+    def _crowded_db(self):
+        """MAX_SECTION_BLOCKS 个长名 + 1 个精确匹配，且精确匹配垫在文件最末。"""
+        n = RB.MAX_SECTION_BLOCKS
+        rows, secs = [], []
+        for i in range(n):
+            rows.append(_p(i + 1, 1, i + 1, 0, f"共名篇第{i}"))
+            secs.append((1, f"共名篇長名{i:02d}", i + 1))    # 长名占满前 50 位
+        rows.append(_p(n + 1, 1, n + 1, 0, "結尾一篇"))
+        secs.append((1, "共名篇", n + 1))                    # 精确匹配垫底
+        return make_db(rows, files=[(1, "f1")], sections=secs)
+
+    def test_section_truncated_flag(self):
+        """篇名命中超过 MAX_SECTION_BLOCKS 时如实报 section_truncated。"""
+        d = self.search(self._crowded_db(), "共名篇")
+        self.assertTrue(d["section_truncated"], "命中超过上限时必须如实标注")
+
+    def test_section_truncation_keeps_the_best(self):
+        """截断按匹配度而非文件序：精确匹配即使垫底也要活下来。
+
+        否则排在第 51 位的那篇恰好就是用户要找的那篇，界面却只说「结果太多」。
+        这里直接验锚点集合——展示层会把相邻锚点并成一个块（那是另一回事）。
+        """
+        conn = self._crowded_db()
+        idx = RB._section_index(conn.cursor())
+        hits, trunc = RB._section_hits(conn.cursor(), "共名篇", None, None, idx)
+        self.assertTrue(trunc)
+        self.assertEqual(len(hits), RB.MAX_SECTION_BLOCKS)
+        self.assertEqual(hits[0][2], RB.MAX_SECTION_BLOCKS + 1,
+                         "精确匹配的一条必须排在锚点表首位")
+
+    def test_empty_when_neither_text_nor_section(self):
+        """两边都没有才叫空结果；字段仍要齐备（前端不必判 undefined）。"""
+        d = self.search(self.conn, "董卓")
+        self.assertEqual(d["total"], 0)
+        self.assertFalse(d["has_more"])
+        self.assertFalse(d["section_truncated"])
+        self.assertEqual(d["results"], [])
+
+
+class TestBlockInvariantsUnit(unittest.TestCase):
+    """第六点一阶段新增的三条不变量，合成库上先钉一遍。"""
+
+    def setUp(self):
+        # 密排正文：同一处段落里处处是「甲」，逼出「窗口装不下」「块会连成长链」两件事。
+        # 行数必须超过 WINDOW_HARD_CAP，否则验不到分批取数。
+        self.conn = make_db([_p(i, 1, i, 0, "甲" * 30)
+                             for i in range(1, RB.WINDOW_HARD_CAP * 2 + 1)],
+                            files=[(1, "f1")])
+
+    def search(self, q, mode="short", page_size=100):
+        return RB.search_result_blocks(self.conn.cursor(), q, None, None, 1,
+                                       page_size, mode)
+
+    def test_every_hit_lands_in_some_block(self):
+        """**没有命中被静默丢掉。** 取数窗口只有 WINDOW_HARD_CAP 行，命中跨度
+        超过它时必须分批取数；只取一屏的话窗口外的命中会人间蒸发（实测
+        「將軍」1142 处命中只组装出 139 处），而 truncated 还是 False。"""
+        cur = self.conn.cursor()
+        hits = RB._fetch_hits(cur, "甲", None, None)
+        self.assertGreater(len(hits), RB.WINDOW_HARD_CAP,
+                           "用例前提：命中行跨度必须超过一屏，否则验不到分批")
+        out = RB.build_result_blocks(cur, [(r["passage_id"], r["file_id"], r["row_no"],
+                                            r["seq"], r["score"] or 0.0) for r in hits],
+                                     "short", None)
+        covered = {p for b in out["blocks"] for p in b["passage_ids"]}
+        self.assertEqual({r["passage_id"] for r in hits} - covered, set(),
+                         "有命中没有出现在任何片段里")
+
+    def test_no_duplicate_passage_across_blocks(self):
+        out = RB.build_result_blocks(
+            self.conn.cursor(), [(i, 1, i, 0, 0.0) for i in range(1, 401)],
+            "short", None)
+        pids = [p for b in out["blocks"] for p in b["passage_ids"]]
+        self.assertEqual(len(pids), len(set(pids)), "同一段正文被展示了两遍")
+
+    def test_blocks_respect_mode_limits(self):
+        """块是「一屏」，不是「这一段的全量」。合并相邻窗口也要守上限——实测
+        不设限时一个 standard 块能长到 8768 字（上限 900）。"""
+        for mode in ("short", "standard", "long"):
+            lim = RB.MODE_LIMITS[mode]
+            out = RB.build_result_blocks(
+                self.conn.cursor(), [(i, 1, i, 0, 0.0) for i in range(1, 401)],
+                mode, None)
+            for b in out["blocks"]:
+                with self.subTest(mode=mode, block=b["block_id"]):
+                    self.assertLessEqual(b["n_chars"], lim["max_chars"])
+                    self.assertLessEqual(b["n_passages"], lim["max_passages"])
+
+    def test_every_block_contains_a_hit(self):
+        """片段存在的理由是「让人看见命中」；不含命中的片段是白给的结果。"""
+        out = RB.build_result_blocks(
+            self.conn.cursor(), [(i, 1, i, 0, 0.0) for i in range(1, 401)],
+            "short", None)
+        for b in out["blocks"]:
+            with self.subTest(block=b["block_id"]):
+                self.assertIn("甲", b["text"])
+
+    def test_has_more_is_consistent_with_total(self):
+        d = self.search("甲", page_size=10)
+        total = d["total"]
+        self.assertEqual(d["has_more"], 10 < total)
+        last = RB.search_result_blocks(self.conn.cursor(), "甲", None, None,
+                                       (total + 9) // 10, 10, "short")
+        self.assertFalse(last["has_more"], "末页不该说还有下一页")
+
+
 # --------------------------------------------------------------- expand
 
 class TestExpandBlock(unittest.TestCase):
@@ -363,16 +620,25 @@ class TestResultBlockApi(unittest.TestCase):
         return self.get("/api/search?" + urllib.parse.urlencode(kw))
 
     def test_default_is_standard_block(self):
+        """默认 mode=standard；total/hit_total **不写死**。
+
+        精确值由语料决定，加书就变（第六点二阶段 齐桓公 74→126 块、96→151 命中）。
+        这里验接口形状与量级；精确基线在 test_result_block_real.py 的 BASELINE，
+        改语料后由 docs/phase6_2_report.md 的复现步骤重测。
+        """
         d = self.search(q=QIHUANGONG)
         self.assertEqual(d["mode"], "standard")
-        self.assertEqual(d["total"], 23)
-        self.assertEqual(d["hit_total"], 96)
         self.assertEqual(len(d["results"]), 20)
+        self.assertGreater(d["hit_total"], 50, "齐桓公 是高频查询，命中不该是个小数字")
+        self.assertLessEqual(d["total"], d["hit_total"],
+                             "块是把命中并起来的，块数不可能多于命中数")
 
     def test_modes_change_block_granularity(self):
+        """三种显示长度：越短块越多（装不下就断开），命中总数不受影响。"""
         short = self.search(q=QIHUANGONG, mode="short")
         long_ = self.search(q=QIHUANGONG, mode="long")
-        self.assertEqual((short["total"], long_["total"]), (26, 18))
+        self.assertGreater(short["total"], long_["total"],
+                           "短模式装得少，应当切出更多块")
         # 命中总数与显示长度无关，必须一致
         self.assertEqual(short["hit_total"], long_["hit_total"])
         self.assertLess(short["limits"]["max_chars"], long_["limits"]["max_chars"])
@@ -384,15 +650,28 @@ class TestResultBlockApi(unittest.TestCase):
             {"q": QIHUANGONG, "book": "三字经"})), 400)
 
     def test_pagination_total_is_exact(self):
-        p1 = self.search(q=QIHUANGONG, page_size=10, page=1)
-        p2 = self.search(q=QIHUANGONG, page_size=10, page=2)
-        p3 = self.search(q=QIHUANGONG, page_size=10, page=3)
-        self.assertEqual(p1["total"], p2["total"])
-        self.assertEqual(p1["total"], p3["total"])
-        self.assertEqual(len(p1["results"]), 10)
-        self.assertEqual(len(p3["results"]), 3)      # 23 段 = 10 + 10 + 3
-        ids = [b["block_id"] for b in p1["results"]] + [b["block_id"] for b in p3["results"]]
-        self.assertEqual(len(ids), len(set(ids)))    # 翻页不重复
+        """翻完所有页：页数之和 = total，末页不满，全程不重复——一页不落地走到底。"""
+        first = self.search(q=QIHUANGONG, page_size=10, page=1)
+        total = first["total"]
+        ids, page = [], 1
+        while True:
+            d = self.search(q=QIHUANGONG, page_size=10, page=page)
+            self.assertEqual(d["total"], total, "翻页时 total 变了")
+            ids += [b["block_id"] for b in d["results"]]
+            if not d["has_more"]:
+                break
+            page += 1
+            self.assertLess(page, 200, "has_more 一直为真，翻不到头")
+        self.assertEqual(len(ids), total, "逐页取回的片段数与 total 不符")
+        self.assertEqual(len(ids), len(set(ids)), "翻页出现重复片段")
+        self.assertEqual(len(set(ids)), total)
+
+    def test_page_beyond_last_is_empty_not_an_error(self):
+        """越界页返回空列表、total 不变、has_more 为假——不是异常，也不是「还有更多」。"""
+        d = self.search(q=QIHUANGONG, page_size=10, page=999999)
+        self.assertEqual(d["results"], [])
+        self.assertEqual(d["total"], self.search(q=QIHUANGONG, page_size=10)["total"])
+        self.assertFalse(d["has_more"])
 
     def test_block_expand_endpoint(self):
         b = self.search(q=QIHUANGONG, mode="long")["results"][0]

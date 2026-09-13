@@ -1,1 +1,1 @@
-{"books":2,"files":4,"src_refs":6,"records":84,"passages":53,"pending":14,"run":{"run_id":"170e5bdb67d64f84a52d3c02e20c2c67","ran_at":"2026-09-11T16:41:34","books":2,"txt_files":4,"n_records":84,"status":"ok"},"fts":{"ok":true,"tokenizer":"trigram","docs":53,"bigram":true}}
+{"books":2,"files":4,"src_refs":6,"records":84,"passages":53,"pending":14,"run":{"run_id":"3cc853ac2e454c41b69a1721d86e77e7","ran_at":"2026-09-12T22:29:02","books":2,"txt_files":4,"n_records":84,"status":"ok"},"fts":{"ok":true,"tokenizer":"trigram","docs":53,"bigram":true}}
